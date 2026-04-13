@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+pymongo
+certifi
+python-dotenv
+argon2-cffi
+pyjwt
+resend
+slowapi
+pydantic[email]
