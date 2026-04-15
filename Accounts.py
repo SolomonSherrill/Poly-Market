@@ -111,6 +111,9 @@ def register_user(name: str, email: str, password: str) -> dict:
             "password_hash": hash_password(password),
             "email_verified": False,
             "balance": 0.0,
+            "total_wins": 0,
+            "total_losses": 0,
+            "net_profit": 0.0,
             "created_at": datetime.now(timezone.utc),
         })
     except pymongo.errors.DuplicateKeyError:
