@@ -5,10 +5,14 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from datetime import datetime, timedelta, timezone
 from Accounts import (
     register_user, login_user, verify_email, get_user,
     resend_verification_email, decode_token,
     request_password_reset, reset_password,
+)
+from Prediction import (
+    create_prediction, get_prediction, back_prediction, get_all_predictions,
 )
 
 # ── App setup ─────────────────────────────────────────────────────────────────
@@ -28,7 +32,7 @@ app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 
 bearer = HTTPBearer()
 
-# ── Request models ────────────────────────────────────────────────────────────
+# ── Auth Request models ────────────────────────────────────────────────────────────
 
 def validate_password(v: str) -> str:
     if len(v) < 8:
@@ -74,6 +78,19 @@ class ResetPasswordRequest(BaseModel):
     @classmethod
     def password_strength(cls, v):
         return validate_password(v)
+    
+# ── Prediction Related models ────────────────────────────────────────────────────────────
+
+class CreatePredictionRequest(BaseModel):
+    bet_string: str
+    is_high_low: bool = False
+    is_yes_no: bool = False
+    end_time: datetime
+
+class BackPredictionRequest(BaseModel):
+    prediction_id: str
+    amount: float
+    is_yes: bool
 
 # ── Auth dependency ───────────────────────────────────────────────────────────
 
@@ -84,7 +101,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer)
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e))
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+# ── Auth Routes ────────────────────────────────────────────────────────────────────
 
 @app.post("/auth/register", status_code=201)
 @limiter.limit("10/hour")
@@ -137,3 +154,29 @@ async def me(user_id: str = Depends(get_current_user)):
         return get_user(user_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    
+# ── Prediction Routes ────────────────────────────────────────────────────────────────────
+@app.post("/predictions/post-prediction")
+async def post_prediction(request: Request, body: CreatePredictionRequest, user_id: str = Depends(get_current_user)):
+    try:
+        return create_prediction(user_id, body.bet_string, body.is_high_low, body.is_yes_no, body.end_time)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+@app.post("/predictions/back-prediction")
+async def back_prediction_route(request: Request, body: BackPredictionRequest, user_id: str = Depends(get_current_user)):
+    try:
+        return back_prediction(body.prediction_id, user_id, body.amount, body.is_yes)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+@app.get("/predictions/get-all-predictions")
+async def get_all_predictions_route(user_id: str = Depends(get_current_user)):
+    try:
+        return get_all_predictions()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+@app.get("/predictions/{prediction_id}")
+async def get_prediction_route(prediction_id: str, user_id: str = Depends(get_current_user)):
+    try:
+        return get_prediction(prediction_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
