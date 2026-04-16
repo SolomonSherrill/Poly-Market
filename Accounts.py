@@ -1,238 +1,160 @@
-from dotenv import load_dotenv
+from datetime import datetime, timezone
 import os
-import pymongo
-from pymongo import MongoClient
+
 import certifi
 import jwt
-import resend
-from argon2 import PasswordHasher
-from argon2.exceptions import VerifyMismatchError, VerificationError, InvalidHashError
-from datetime import datetime, timedelta, timezone
 from bson import ObjectId
-from secrets import token_urlsafe
+from dotenv import load_dotenv
+from pymongo import MongoClient
 
 load_dotenv()
 
-resend.api_key = os.getenv("RESEND_API_KEY")
-
-ph = PasswordHasher(
-    time_cost=3,
-    memory_cost=65536,
-    parallelism=2,
-    hash_len=32,
-    salt_len=16,
-)
-
-# ── DB ────────────────────────────────────────────────────────────────────────
-
 _client = MongoClient(os.getenv("MONGO_URL"), tlsCAFile=certifi.where())
 db = _client["Poly-Market"]
-db["Users"].create_index("email", unique=True)
+db["Users"].create_index("email", unique=True, sparse=True)
+db["Users"].create_index("auth_provider_user_id", unique=True, sparse=True)
 
-# ── Password ──────────────────────────────────────────────────────────────────
+_jwks_client = None
 
-def hash_password(plain: str):
-    return ph.hash(plain)
 
-def check_password(plain: str, hashed: str):
+def _get_auth0_domain() -> str:
+    domain = os.getenv("AUTH0_DOMAIN", "").strip()
+    if not domain:
+        raise ValueError("AUTH0_DOMAIN not set in environment")
+    return domain.removeprefix("https://").rstrip("/")
+
+
+def _get_auth0_audience() -> str:
+    audience = os.getenv("AUTH0_AUDIENCE", "").strip()
+    if not audience:
+        raise ValueError("AUTH0_AUDIENCE not set in environment")
+    return audience
+
+
+def _get_jwks_client() -> jwt.PyJWKClient:
+    global _jwks_client
+    if _jwks_client is None:
+        domain = _get_auth0_domain()
+        _jwks_client = jwt.PyJWKClient(f"https://{domain}/.well-known/jwks.json")
+    return _jwks_client
+
+
+def verify_auth0_token(token: str) -> dict:
+    domain = _get_auth0_domain()
+    audience = _get_auth0_audience()
+
     try:
-        return ph.verify(hashed, plain)
-    except (VerifyMismatchError, VerificationError, InvalidHashError):
-        return {"success": False, "message": "Invalid email or password"}
-
-# ── Tokens ────────────────────────────────────────────────────────────────────
-
-def _get_secret():
-    secret = os.getenv("JWT_SECRET")
-    if not secret:
-        raise ValueError("JWT_SECRET not set in environment")
-    return secret
-
-def generate_session_token(user_id: str):
-    payload = {
-        "sub": user_id,
-        "type": "session",
-        "iat": datetime.now(timezone.utc),
-        "exp": datetime.now(timezone.utc) + timedelta(days=7),
-    }
-    return jwt.encode(payload, _get_secret(), algorithm="HS256")
-
-def generate_verification_token(user_id: str):
-    payload = {
-        "sub": user_id,
-        "type": "email_verification",
-        "iat": datetime.now(timezone.utc),
-        "exp": datetime.now(timezone.utc) + timedelta(hours=24),
-    }
-    return jwt.encode(payload, _get_secret(), algorithm="HS256")
-
-def decode_token(token: str, expected_type: str):
-    try:
-        payload = jwt.decode(token, _get_secret(), algorithms=["HS256"])
-        if payload.get("type") != expected_type:
-            raise ValueError("Invalid token type")
-        return payload
+        signing_key = _get_jwks_client().get_signing_key_from_jwt(token)
+        return jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience=audience,
+            issuer=f"https://{domain}/",
+        )
     except jwt.ExpiredSignatureError:
         raise ValueError("Token has expired")
-    except jwt.InvalidTokenError:
-        raise ValueError("Invalid token")
+    except jwt.InvalidTokenError as exc:
+        raise ValueError(f"Invalid token: {exc}")
 
-# ── Email ─────────────────────────────────────────────────────────────────────
 
-def send_verification_email(email: str, name: str, user_id: str):
-    token = generate_verification_token(user_id)
-    base_url = os.getenv("APP_BASE_URL", "http://localhost:8000")
-    verify_url = f"{base_url}/auth/verify-email?token={token}"
-
-    resend.Emails.send({
-        "from": "Poly-Market <onboarding@resend.dev>",  # swap for your domain later
-        "to": email,
-        "subject": "Verify your Poly-Market email",
-        "html": f"""
-            <p>Hi {name},</p>
-            <p>Click the link below to verify your email. It expires in 24 hours.</p>
-            <a href="{verify_url}">Verify your email</a>
-            <p>If you didn't create an account, you can ignore this.</p>
-        """,
-    })
-
-# ── User methods ──────────────────────────────────────────────────────────────
-
-def register_user(name: str, email: str, password: str):
-    if not name or not email or not password:
-        raise ValueError("Name, email, and password are required")
-    if len(password) < 8:
-        raise ValueError("Password must be at least 8 characters")
-
-    try:
-        result = db["Users"].insert_one({
-            "name": name,
-            "email": email.lower().strip(),
-            "password_hash": hash_password(password),
-            "email_verified": False,
-            "balance": 0.0,
-            "total_wins": 0,
-            "total_losses": 0,
-            "net_profit": 0.0,
-            "created_at": datetime.now(timezone.utc),
-        })
-    except pymongo.errors.DuplicateKeyError:
-        raise ValueError(f"An account with email '{email}' already exists")
-
-    user_id = str(result.inserted_id)
-    send_verification_email(email, name, user_id)
-
-    return {"id": user_id, "message": "Account created. Check your email to verify."}
-
-def verify_email(token: str):
-    payload = decode_token(token, expected_type="email_verification")
-    user_id = payload["sub"]
-
-    result = db["Users"].update_one(
-        {"_id": ObjectId(user_id), "email_verified": False},
-        {"$set": {"email_verified": True, "verified_at": datetime.now(timezone.utc)}}
-    )
-
-    if result.matched_count == 0:
-        raise ValueError("Already verified or user not found")
-
-    return {"message": "Email verified successfully"}
-
-def login_user(email: str, password: str):
-    user = db["Users"].find_one({"email": email.lower().strip()})
-
-    if not user or not check_password(password, user["password_hash"]):
-        raise ValueError("Invalid email or password")
-
-    if not user.get("email_verified"):
-        raise ValueError("Please verify your email before logging in")
-
-    user_id = str(user["_id"])
-    return {
-        "id": user_id,
-        "name": user["name"],
-        "token": generate_session_token(user_id),
+def _build_new_user_document(claims: dict) -> dict:
+    document = {
+        "auth_provider": "auth0",
+        "auth_provider_user_id": claims["sub"],
+        "balance": 0.0,
+        "total_wins": 0,
+        "total_losses": 0,
+        "net_profit": 0.0,
+        "created_at": datetime.now(timezone.utc),
+        "last_login_at": datetime.now(timezone.utc),
     }
 
-def get_user(user_id: str):
-    user = db["Users"].find_one({"_id": ObjectId(user_id)})
+    if claims.get("email"):
+        document["email"] = claims["email"].lower().strip()
+    if claims.get("name"):
+        document["name"] = claims["name"]
+    if "email_verified" in claims:
+        document["email_verified"] = bool(claims["email_verified"])
+    if claims.get("picture"):
+        document["picture"] = claims["picture"]
+
+    return document
+
+
+def get_or_create_user_from_claims(claims: dict) -> dict:
+    auth_provider_user_id = claims.get("sub")
+    if not auth_provider_user_id:
+        raise ValueError("Token missing sub claim")
+
+    user = db["Users"].find_one({"auth_provider_user_id": auth_provider_user_id})
+    if user:
+        updates = {
+            "last_login_at": datetime.now(timezone.utc),
+        }
+
+        if claims.get("email"):
+            updates["email"] = claims["email"].lower().strip()
+        if claims.get("name"):
+            updates["name"] = claims["name"]
+        if "email_verified" in claims:
+            updates["email_verified"] = bool(claims["email_verified"])
+        if claims.get("picture"):
+            updates["picture"] = claims["picture"]
+
+        db["Users"].update_one({"_id": user["_id"]}, {"$set": updates})
+        user.update(updates)
+        return user
+
+    email = (claims.get("email") or "").lower().strip()
+    if email:
+        existing_user = db["Users"].find_one({"email": email})
+        if existing_user:
+            updates = {
+                "auth_provider": "auth0",
+                "auth_provider_user_id": auth_provider_user_id,
+                "email_verified": bool(claims.get("email_verified")),
+                "last_login_at": datetime.now(timezone.utc),
+            }
+            if claims.get("name"):
+                updates["name"] = claims["name"]
+            if claims.get("picture"):
+                updates["picture"] = claims["picture"]
+
+            db["Users"].update_one({"_id": existing_user["_id"]}, {"$set": updates})
+            existing_user.update(updates)
+            return existing_user
+
+    result = db["Users"].insert_one(_build_new_user_document(claims))
+    user = db["Users"].find_one({"_id": result.inserted_id})
+    if not user:
+        raise ValueError("Failed to create user")
+    return user
+
+
+def get_local_user_id_from_token(token: str) -> str:
+    claims = verify_auth0_token(token)
+    user = get_or_create_user_from_claims(claims)
+    return str(user["_id"])
+
+
+def get_user(user_id: str) -> dict:
+    try:
+        user = db["Users"].find_one({"_id": ObjectId(user_id)})
+    except Exception:
+        raise ValueError("Invalid user id")
+
     if not user:
         raise ValueError("User not found")
+
     return {
         "id": str(user["_id"]),
-        "name": user["name"],
-        "email": user["email"],
-        "email_verified": user["email_verified"],
+        "name": user.get("name"),
+        "email": user.get("email"),
+        "email_verified": user.get("email_verified", False),
+        "picture": user.get("picture"),
         "balance": user["balance"],
         "created_at": user["created_at"],
+        "auth_provider": user.get("auth_provider"),
+        "auth_provider_user_id": user.get("auth_provider_user_id"),
     }
-
-def resend_verification_email(email: str):
-    """For users who never clicked the link."""
-    user = db["Users"].find_one({"email": email.lower().strip()})
-    if not user:
-        # Don't reveal whether the email exists
-        return {"message": "If that email is registered, a verification link has been sent."}
-    if user.get("email_verified"):
-        raise ValueError("Email is already verified")
-
-    send_verification_email(email, user["name"], str(user["_id"]))
-    return {"message": "If that email is registered, a verification link has been sent."}
-
-# ── Password Reset ────────────────────────────────────────────────────────────
-
-def generate_reset_token(user_id: str):
-    payload = {
-        "sub": user_id,
-        "type": "password_reset",
-        "iat": datetime.now(timezone.utc),
-        "exp": datetime.now(timezone.utc) + timedelta(hours=1),
-    }
-    return jwt.encode(payload, _get_secret(), algorithm="HS256")
-
-def send_reset_email(email: str, name: str, user_id: str):
-    token = generate_reset_token(user_id)
-    base_url = os.getenv("APP_BASE_URL", "http://localhost:8000")
-    reset_url = f"{base_url}/auth/reset-password?token={token}"
-
-    resend.Emails.send({
-        "from": "Poly-Market <onboarding@resend.dev>",
-        "to": email,
-        "subject": "Reset your Poly-Market password",
-        "html": f"""
-            <p>Hi {name},</p>
-            <p>Click the link below to reset your password. It expires in 1 hour.</p>
-            <a href="{reset_url}">Reset Password</a>
-            <p>If you didn't request this, you can ignore this email.</p>
-        """,
-    })
-
-def request_password_reset(email: str):
-    user = db["Users"].find_one({"email": email.lower().strip()})
-    # Always return the same message — don't reveal whether email exists
-    if user:
-        send_reset_email(email, user["name"], str(user["_id"]))
-    return {"message": "If that email is registered, a password reset link has been sent."}
-
-def reset_password(token: str, new_password: str):
-    if len(new_password) < 8:
-        raise ValueError("Password must be at least 8 characters")
-
-    payload = decode_token(token, expected_type="password_reset")
-    user_id = payload["sub"]
-
-    try:
-        result = db["Users"].update_one(
-            {"_id": ObjectId(user_id)},
-            {"$set": {
-                "password_hash": hash_password(new_password),
-                "password_reset_at": datetime.now(timezone.utc),
-            }}
-        )
-    except Exception:
-        raise ValueError("Invalid user")
-
-    if result.matched_count == 0:
-        raise ValueError("User not found")
-
-    return {"message": "Password reset successfully. Please log in again."}
