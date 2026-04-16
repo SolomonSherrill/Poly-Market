@@ -31,24 +31,24 @@ db["Users"].create_index("email", unique=True)
 
 # ── Password ──────────────────────────────────────────────────────────────────
 
-def hash_password(plain: str) -> str:
+def hash_password(plain: str):
     return ph.hash(plain)
 
-def check_password(plain: str, hashed: str) -> bool:
+def check_password(plain: str, hashed: str):
     try:
         return ph.verify(hashed, plain)
     except (VerifyMismatchError, VerificationError, InvalidHashError):
-        return False
+        return {"success": False, "message": "Invalid email or password"}
 
 # ── Tokens ────────────────────────────────────────────────────────────────────
 
-def _get_secret() -> str:
+def _get_secret():
     secret = os.getenv("JWT_SECRET")
     if not secret:
         raise ValueError("JWT_SECRET not set in environment")
     return secret
 
-def generate_session_token(user_id: str) -> str:
+def generate_session_token(user_id: str):
     payload = {
         "sub": user_id,
         "type": "session",
@@ -57,7 +57,7 @@ def generate_session_token(user_id: str) -> str:
     }
     return jwt.encode(payload, _get_secret(), algorithm="HS256")
 
-def generate_verification_token(user_id: str) -> str:
+def generate_verification_token(user_id: str):
     payload = {
         "sub": user_id,
         "type": "email_verification",
@@ -66,7 +66,7 @@ def generate_verification_token(user_id: str) -> str:
     }
     return jwt.encode(payload, _get_secret(), algorithm="HS256")
 
-def decode_token(token: str, expected_type: str) -> dict:
+def decode_token(token: str, expected_type: str):
     try:
         payload = jwt.decode(token, _get_secret(), algorithms=["HS256"])
         if payload.get("type") != expected_type:
@@ -98,7 +98,7 @@ def send_verification_email(email: str, name: str, user_id: str):
 
 # ── User methods ──────────────────────────────────────────────────────────────
 
-def register_user(name: str, email: str, password: str) -> dict:
+def register_user(name: str, email: str, password: str):
     if not name or not email or not password:
         raise ValueError("Name, email, and password are required")
     if len(password) < 8:
@@ -124,7 +124,7 @@ def register_user(name: str, email: str, password: str) -> dict:
 
     return {"id": user_id, "message": "Account created. Check your email to verify."}
 
-def verify_email(token: str) -> dict:
+def verify_email(token: str):
     payload = decode_token(token, expected_type="email_verification")
     user_id = payload["sub"]
 
@@ -138,7 +138,7 @@ def verify_email(token: str) -> dict:
 
     return {"message": "Email verified successfully"}
 
-def login_user(email: str, password: str) -> dict:
+def login_user(email: str, password: str):
     user = db["Users"].find_one({"email": email.lower().strip()})
 
     if not user or not check_password(password, user["password_hash"]):
@@ -154,7 +154,7 @@ def login_user(email: str, password: str) -> dict:
         "token": generate_session_token(user_id),
     }
 
-def get_user(user_id: str) -> dict:
+def get_user(user_id: str):
     user = db["Users"].find_one({"_id": ObjectId(user_id)})
     if not user:
         raise ValueError("User not found")
@@ -181,7 +181,7 @@ def resend_verification_email(email: str):
 
 # ── Password Reset ────────────────────────────────────────────────────────────
 
-def generate_reset_token(user_id: str) -> str:
+def generate_reset_token(user_id: str):
     payload = {
         "sub": user_id,
         "type": "password_reset",
@@ -207,14 +207,14 @@ def send_reset_email(email: str, name: str, user_id: str):
         """,
     })
 
-def request_password_reset(email: str) -> dict:
+def request_password_reset(email: str):
     user = db["Users"].find_one({"email": email.lower().strip()})
     # Always return the same message — don't reveal whether email exists
     if user:
         send_reset_email(email, user["name"], str(user["_id"]))
     return {"message": "If that email is registered, a password reset link has been sent."}
 
-def reset_password(token: str, new_password: str) -> dict:
+def reset_password(token: str, new_password: str):
     if len(new_password) < 8:
         raise ValueError("Password must be at least 8 characters")
 
