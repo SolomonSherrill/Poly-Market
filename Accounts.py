@@ -25,9 +25,34 @@ ph = PasswordHasher(
 
 # ── DB ────────────────────────────────────────────────────────────────────────
 
-_client = MongoClient(os.getenv("MONGO_URL"), tlsCAFile=certifi.where())
-db = _client["Poly-Market"]
-db["Users"].create_index("email", unique=True)
+_client = None
+_db = None
+_indexes_ready = False
+
+
+def get_db():
+    global _client, _db
+
+    if _db is None:
+        mongo_url = os.getenv("MONGO_URL") or "mongodb://localhost:27017"
+        _client = MongoClient(
+            mongo_url,
+            tlsCAFile=certifi.where(),
+            serverSelectionTimeoutMS=5000,
+        )
+        _db = _client["Poly-Market"]
+
+    return _db
+
+
+def ensure_indexes():
+    global _indexes_ready
+
+    if _indexes_ready:
+        return
+
+    get_db()["Users"].create_index("email", unique=True)
+    _indexes_ready = True
 
 # ── Password ──────────────────────────────────────────────────────────────────
 
@@ -104,6 +129,9 @@ def register_user(name: str, email: str, password: str):
     if len(password) < 8:
         raise ValueError("Password must be at least 8 characters")
 
+    db = get_db()
+    ensure_indexes()
+
     try:
         result = db["Users"].insert_one({
             "name": name,
@@ -125,6 +153,7 @@ def register_user(name: str, email: str, password: str):
     return {"id": user_id, "message": "Account created. Check your email to verify."}
 
 def verify_email(token: str):
+    db = get_db()
     payload = decode_token(token, expected_type="email_verification")
     user_id = payload["sub"]
 
@@ -139,6 +168,7 @@ def verify_email(token: str):
     return {"message": "Email verified successfully"}
 
 def login_user(email: str, password: str):
+    db = get_db()
     user = db["Users"].find_one({"email": email.lower().strip()})
 
     if not user or not check_password(password, user["password_hash"]):
@@ -155,6 +185,7 @@ def login_user(email: str, password: str):
     }
 
 def get_user(user_id: str):
+    db = get_db()
     user = db["Users"].find_one({"_id": ObjectId(user_id)})
     if not user:
         raise ValueError("User not found")
@@ -169,6 +200,7 @@ def get_user(user_id: str):
 
 def resend_verification_email(email: str):
     """For users who never clicked the link."""
+    db = get_db()
     user = db["Users"].find_one({"email": email.lower().strip()})
     if not user:
         # Don't reveal whether the email exists
@@ -208,6 +240,7 @@ def send_reset_email(email: str, name: str, user_id: str):
     })
 
 def request_password_reset(email: str):
+    db = get_db()
     user = db["Users"].find_one({"email": email.lower().strip()})
     # Always return the same message — don't reveal whether email exists
     if user:
@@ -218,6 +251,7 @@ def reset_password(token: str, new_password: str):
     if len(new_password) < 8:
         raise ValueError("Password must be at least 8 characters")
 
+    db = get_db()
     payload = decode_token(token, expected_type="password_reset")
     user_id = payload["sub"]
 

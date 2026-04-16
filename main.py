@@ -4,15 +4,17 @@ import logging
 import random
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import numpy as np
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, EmailStr, field_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from starlette.middleware.trustedhost import TrustedHostMiddleware
 from datetime import datetime, timedelta, timezone
 
 from Accounts import (
@@ -30,6 +32,8 @@ from Prediction import (
 )
 
 logger = logging.getLogger(__name__)
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
 
 # ---------- P2P networking system ----------
 FANOUT = 10  # max neighbors per peer
@@ -396,6 +400,12 @@ async def login(request: Request, body: LoginRequest):
 @app.get("/auth/verify-email")
 @limiter.limit("10/minute")
 async def verify(request: Request, token: str):
+    accept_header = request.headers.get("accept", "")
+    user_agent = request.headers.get("user-agent", "")
+    wants_browser_page = "text/html" in accept_header or "mozilla" in user_agent.lower()
+    if wants_browser_page:
+        return RedirectResponse(url=f"/?mode=verify&token={token}", status_code=303)
+
     try:
         return verify_email(token)
     except ValueError as exc:
@@ -424,6 +434,11 @@ async def reset(request: Request, body: ResetPasswordRequest):
         return reset_password(body.token, body.new_password)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/auth/reset-password")
+async def reset_password_page(token: str):
+    return RedirectResponse(url=f"/?mode=reset&token={token}", status_code=303)
 
 
 @app.get("/users/me")
@@ -458,5 +473,21 @@ async def get_prediction_route(prediction_id: str, user_id: str = Depends(get_cu
         return get_prediction(prediction_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.get("/")
+async def frontend_index():
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/{full_path:path}")
+async def frontend_routes(full_path: str):
+    if full_path.startswith(("auth/", "users/", "predictions/", "connect", "health", "network", "openapi", "docs", "redoc", "static/")):
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(STATIC_DIR / "index.html")
 
 

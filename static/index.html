@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Poly Market</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="shell">
+    <aside class="hero-panel">
+      <div class="brand-lockup">
+        <div class="brand-badge">PM</div>
+        <div>
+          <p class="eyebrow">Railway-ready prediction exchange</p>
+          <h1>Trade opinions in a royal blue market shell.</h1>
+        </div>
+      </div>
+
+      <p class="hero-copy">
+        A polished login flow, responsive market dashboard, and integrated Yes/No betting actions
+        wired directly into your existing FastAPI endpoints.
+      </p>
+
+      <div class="hero-grid">
+        <article class="stat-card">
+          <span class="stat-label">Market Speed</span>
+          <strong>Instant auth + betting</strong>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Deployment</span>
+          <strong>Single Railway service</strong>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Style</span>
+          <strong>Royal blue / white Kalshi feel</strong>
+        </article>
+      </div>
+    </aside>
+
+    <main class="app-panel">
+      <header class="topbar">
+        <div>
+          <p class="topbar-label">Market Console</p>
+          <h2 id="welcome-title">Sign in to your account</h2>
+        </div>
+        <div class="topbar-actions">
+          <button id="refresh-markets" class="ghost-button hidden" type="button">Refresh Markets</button>
+          <button id="logout-button" class="ghost-button hidden" type="button">Log Out</button>
+        </div>
+      </header>
+
+      <section id="message-banner" class="message-banner hidden" aria-live="polite"></section>
+
+      <section id="auth-view" class="auth-layout">
+        <div class="panel">
+          <div class="tabs" role="tablist" aria-label="Authentication">
+            <button id="login-tab" class="tab active" type="button">Login</button>
+            <button id="register-tab" class="tab" type="button">Register</button>
+          </div>
+
+          <form id="login-form" class="stack">
+            <label class="field">
+              <span>Email</span>
+              <input name="email" type="email" placeholder="you@example.com" required>
+            </label>
+            <label class="field">
+              <span>Password</span>
+              <input name="password" type="password" placeholder="Enter your password" required>
+            </label>
+            <button class="primary-button" type="submit">Login</button>
+          </form>
+
+          <form id="register-form" class="stack hidden">
+            <label class="field">
+              <span>Name</span>
+              <input name="name" type="text" placeholder="Your full name" required>
+            </label>
+            <label class="field">
+              <span>Email</span>
+              <input name="email" type="email" placeholder="you@example.com" required>
+            </label>
+            <label class="field">
+              <span>Password</span>
+              <input name="password" type="password" placeholder="At least 8 chars, 1 uppercase, 1 number" required>
+            </label>
+            <button class="primary-button" type="submit">Create account</button>
+          </form>
+
+          <form id="forgot-form" class="inline-form">
+            <label class="field compact-field">
+              <span>Need a reset link?</span>
+              <input name="email" type="email" placeholder="Enter your email">
+            </label>
+            <button class="secondary-button" type="submit">Send reset</button>
+          </form>
+
+          <form id="resend-form" class="inline-form">
+            <label class="field compact-field">
+              <span>Need verification again?</span>
+              <input name="email" type="email" placeholder="Enter your email">
+            </label>
+            <button class="secondary-button" type="submit">Resend email</button>
+          </form>
+        </div>
+
+        <div class="panel panel-accent">
+          <p class="panel-kicker">What you get</p>
+          <ul class="feature-list">
+            <li>Integrated account creation, login, reset, and verification flows</li>
+            <li>Live market cards pulled from your existing prediction functions</li>
+            <li>Large Yes / No buttons and stake controls for placing positions</li>
+          </ul>
+        </div>
+      </section>
+
+      <section id="reset-view" class="panel hidden">
+        <div class="section-heading">
+          <p class="panel-kicker">Password reset</p>
+          <h3>Set a new password</h3>
+        </div>
+        <form id="reset-password-form" class="stack">
+          <label class="field">
+            <span>New password</span>
+            <input name="new_password" type="password" placeholder="Strong password" required>
+          </label>
+          <button class="primary-button" type="submit">Update password</button>
+        </form>
+      </section>
+
+      <section id="dashboard-view" class="dashboard hidden">
+        <div class="dashboard-grid">
+          <article class="panel profile-card">
+            <p class="panel-kicker">Account</p>
+            <h3 id="user-name">Loading...</h3>
+            <div class="profile-metrics">
+              <div>
+                <span>Balance</span>
+                <strong id="user-balance">$0.00</strong>
+              </div>
+              <div>
+                <span>Email</span>
+                <strong id="user-email">-</strong>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel create-market-card">
+            <div class="section-heading">
+              <p class="panel-kicker">Create market</p>
+              <h3>Post a new prediction</h3>
+            </div>
+            <form id="create-market-form" class="stack">
+              <label class="field">
+                <span>Question</span>
+                <input name="bet_string" type="text" placeholder="Will Team A win on Friday?" required>
+              </label>
+              <div class="toggle-row">
+                <label class="toggle-pill">
+                  <input name="is_yes_no" type="checkbox" checked>
+                  <span>Yes / No</span>
+                </label>
+                <label class="toggle-pill">
+                  <input name="is_high_low" type="checkbox">
+                  <span>High / Low</span>
+                </label>
+              </div>
+              <label class="field">
+                <span>Ends at</span>
+                <input name="end_time" type="datetime-local" required>
+              </label>
+              <button class="primary-button" type="submit">Post prediction</button>
+            </form>
+          </article>
+        </div>
+
+        <section class="markets-section">
+          <div class="section-heading market-heading">
+            <div>
+              <p class="panel-kicker">Open markets</p>
+              <h3>Trade active predictions</h3>
+            </div>
+          </div>
+          <div id="markets-list" class="markets-list"></div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <template id="market-card-template">
+    <article class="market-card">
+      <div class="market-copy">
+        <div class="market-meta">
+          <span class="market-tag"></span>
+          <span class="market-end"></span>
+        </div>
+        <h4 class="market-title"></h4>
+        <div class="market-volume">
+          <span class="yes-volume"></span>
+          <span class="no-volume"></span>
+        </div>
+      </div>
+      <form class="bet-form">
+        <label class="field">
+          <span>Stake</span>
+          <input class="stake-input" name="amount" type="number" min="1" step="0.01" placeholder="25.00" required>
+        </label>
+        <div class="bet-actions">
+          <button class="bet-button yes-button" data-side="yes" type="submit">Buy Yes</button>
+          <button class="bet-button no-button" data-side="no" type="submit">Buy No</button>
+        </div>
+      </form>
+    </article>
+  </template>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

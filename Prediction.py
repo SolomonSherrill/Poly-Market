@@ -7,10 +7,10 @@ from datetime import datetime, timedelta, timezone
 from bson import ObjectId
 from secrets import token_urlsafe
 import os
+from Accounts import get_db
 load_dotenv()
-_client = MongoClient(os.getenv("MONGO_URL"), tlsCAFile=certifi.where())
-db = _client["Poly-Market"]
 def create_prediction(creator_id: str, bet_string: str, is_high_low: bool, is_yes_no: bool, end_time: datetime):
+    db = get_db()
     bet_type = "high_low" if is_high_low else "yes_no" if is_yes_no else "other"
     prediction = {
         "creator_id": ObjectId(creator_id),
@@ -26,6 +26,7 @@ def create_prediction(creator_id: str, bet_string: str, is_high_low: bool, is_ye
     result = db["Predictions"].insert_one(prediction)
     return str(result.inserted_id)
 def get_all_predictions():
+    db = get_db()
     predictions = []
     try:
         prediction_list = db["Predictions"].find({"resolved": False, "end_time": {"$gt": datetime.now(timezone.utc)}})
@@ -37,6 +38,7 @@ def get_all_predictions():
         predictions.append(prediction)
     return predictions
 def get_prediction(prediction_id: str):
+    db = get_db()
     try:
         prediction = db["Predictions"].find_one({"_id": ObjectId(prediction_id)})
     except Exception:
@@ -47,6 +49,7 @@ def get_prediction(prediction_id: str):
     prediction["creator_id"] = str(prediction["creator_id"])
     return prediction
 def back_prediction(prediction_id: str, user_id: str, amount: float, is_yes: bool):
+    db = get_db()
     prediction = db["Predictions"].find_one({"_id": ObjectId(prediction_id)})
     user = db["Users"].find_one({"_id": ObjectId(user_id)})
     if not user or user["balance"] < amount:
