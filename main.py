@@ -4,41 +4,24 @@ import logging
 import random
 import uuid
 from contextlib import asynccontextmanager
-from pathlib import Path
+from datetime import datetime
 
 import numpy as np
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from datetime import datetime, timedelta, timezone
-
-from Accounts import (
-    decode_token,
-    get_user,
-    login_user,
-    register_user,
-    request_password_reset,
-    resend_verification_email,
-    reset_password,
-    verify_email,
-)
-from Prediction import (
-    create_prediction, get_prediction, back_prediction, get_all_predictions,
-)
-
 logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 
-# ---------- P2P networking system ----------
-FANOUT = 10  # max neighbors per peer
-RESERVED = 6  # reserved slots for emergency repairs and new peers
-FIEDLER_THRESHOLD = 0.85  # below this, try to repair
+FANOUT = 10
+RESERVED = 6
+FIEDLER_THRESHOLD = 0.85
 
 
 class Peer:
@@ -179,7 +162,6 @@ class Network:
 network = Network()
 
 
-# ---------- Background diagnostics ----------
 async def diagnosticsLoop():
     while True:
         try:
@@ -205,7 +187,6 @@ async def diagnosticsLoop():
             logger.exception("Diagnostics loop failed")
 
 
-# ---------- App setup ----------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     asyncio.create_task(diagnosticsLoop())
@@ -220,16 +201,14 @@ def get_real_ip(request: Request) -> str:
 
 
 limiter = Limiter(key_func=get_real_ip)
-app = FastAPI(title="Poly-Market API", lifespan=lifespan)
+app = FastAPI(title="Poly-Market API (Auth0 Copy)", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
 bearer = HTTPBearer()
 
-# ── Auth Request models ────────────────────────────────────────────────────────────
 
-# ---------- REST endpoints ----------
 @app.get("/health")
 def health():
     return {
@@ -253,12 +232,10 @@ def network_state():
     }
 
 
-# ---------- WebSocket signaling ----------
 @app.websocket("/connect")
 async def connect(ws: WebSocket, token: str = Query(...)):
     try:
-        payload = decode_token(token, expected_type="session")
-        user_id = payload["sub"]
+        user_id = get_local_user_id_from_token(token)
     except ValueError:
         await ws.close(code=1008)
         return
@@ -303,64 +280,12 @@ async def connect(ws: WebSocket, token: str = Query(...)):
                 await neighbor.sendText(json.dumps({"type": "PEER_DISCONNECTED", "peer_id": peer_id}))
 
 
-# ---------- Request models ----------
-def validate_password(value: str) -> str:
-    if len(value) < 8:
-        raise ValueError("Password must be at least 8 characters")
-    if not any(char.isupper() for char in value):
-        raise ValueError("Password must contain at least one uppercase letter")
-    if not any(char.isdigit() for char in value):
-        raise ValueError("Password must contain at least one number")
-    return value
-
-
-class RegisterRequest(BaseModel):
-    name: str
-    email: EmailStr
-    password: str
-
-    @field_validator("password")
-    @classmethod
-    def password_strength(cls, value):
-        return validate_password(value)
-
-    @field_validator("name")
-    @classmethod
-    def name_not_empty(cls, value):
-        if not value.strip():
-            raise ValueError("Name cannot be empty")
-        return value.strip()
-
-
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
-
-
-class ResendRequest(BaseModel):
-    email: EmailStr
-
-
-class ResetRequest(BaseModel):
-    email: EmailStr
-
-
-class ResetPasswordRequest(BaseModel):
-    token: str
-    new_password: str
-
-    @field_validator("new_password")
-    @classmethod
-    def password_strength(cls, v):
-        return validate_password(v)
-    
-# ── Prediction Related models ────────────────────────────────────────────────────────────
-
 class CreatePredictionRequest(BaseModel):
     bet_string: str
     is_high_low: bool = False
     is_yes_no: bool = False
     end_time: datetime
+
 
 class BackPredictionRequest(BaseModel):
     prediction_id: str
@@ -368,72 +293,11 @@ class BackPredictionRequest(BaseModel):
     is_yes: bool
 
 
-# ---------- Auth dependency ----------
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer)) -> str:
     try:
-        payload = decode_token(credentials.credentials, expected_type="session")
-        return payload["sub"]
+        return get_local_user_id_from_token(credentials.credentials)
     except ValueError as exc:
         raise HTTPException(status_code=401, detail=str(exc))
-
-# ── Auth Routes ────────────────────────────────────────────────────────────────────
-
-# ---------- Routes ----------
-@app.post("/auth/register", status_code=201)
-@limiter.limit("10/hour")
-async def register(request: Request, body: RegisterRequest):
-    try:
-        return register_user(body.name, body.email, body.password)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-
-@app.post("/auth/login")
-@limiter.limit("10/minute")
-async def login(request: Request, body: LoginRequest):
-    try:
-        return login_user(body.email, body.password)
-    except ValueError as exc:
-        raise HTTPException(status_code=401, detail=str(exc))
-
-
-@app.get("/auth/verify-email")
-@limiter.limit("10/minute")
-async def verify(request: Request, token: str):
-    accept_header = request.headers.get("accept", "")
-    user_agent = request.headers.get("user-agent", "")
-    wants_browser_page = "text/html" in accept_header or "mozilla" in user_agent.lower()
-    if wants_browser_page:
-        return RedirectResponse(url=f"/?mode=verify&token={token}", status_code=303)
-
-    try:
-        return verify_email(token)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-
-@app.post("/auth/resend-verification")
-@limiter.limit("3/hour")
-async def resend_verification(request: Request, body: ResendRequest):
-    try:
-        return resend_verification_email(body.email)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-
-@app.post("/auth/forgot-password")
-@limiter.limit("5/hour")
-async def forgot_password(request: Request, body: ResetRequest):
-    return request_password_reset(body.email)
-
-
-@app.post("/auth/reset-password")
-@limiter.limit("5/hour")
-async def reset(request: Request, body: ResetPasswordRequest):
-    try:
-        return reset_password(body.token, body.new_password)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/auth/reset-password")
@@ -445,49 +309,45 @@ async def reset_password_page(token: str):
 async def me(user_id: str = Depends(get_current_user)):
     try:
         return get_user(user_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    
-# ── Prediction Routes ────────────────────────────────────────────────────────────────────
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
 @app.post("/predictions/post-prediction")
-async def post_prediction(request: Request, body: CreatePredictionRequest, user_id: str = Depends(get_current_user)):
+async def post_prediction(
+    request: Request,
+    body: CreatePredictionRequest,
+    user_id: str = Depends(get_current_user),
+):
     try:
         return create_prediction(user_id, body.bet_string, body.is_high_low, body.is_yes_no, body.end_time)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.post("/predictions/back-prediction")
-async def back_prediction_route(request: Request, body: BackPredictionRequest, user_id: str = Depends(get_current_user)):
+async def back_prediction_route(
+    request: Request,
+    body: BackPredictionRequest,
+    user_id: str = Depends(get_current_user),
+):
     try:
         return back_prediction(body.prediction_id, user_id, body.amount, body.is_yes)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.get("/predictions/get-all-predictions")
 async def get_all_predictions_route(user_id: str = Depends(get_current_user)):
     try:
         return get_all_predictions()
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.get("/predictions/{prediction_id}")
 async def get_prediction_route(prediction_id: str, user_id: str = Depends(get_current_user)):
     try:
         return get_prediction(prediction_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
-
-@app.get("/")
-async def frontend_index():
-    return FileResponse(STATIC_DIR / "index.html")
-
-
-@app.get("/{full_path:path}")
-async def frontend_routes(full_path: str):
-    if full_path.startswith(("auth/", "users/", "predictions/", "connect", "health", "network", "openapi", "docs", "redoc", "static/")):
-        raise HTTPException(status_code=404, detail="Not found")
-    return FileResponse(STATIC_DIR / "index.html")
-
-
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
