@@ -9,12 +9,30 @@ from pymongo import MongoClient
 
 load_dotenv()
 
-_client = MongoClient(os.getenv("MONGO_URL"), tlsCAFile=certifi.where())
-db = _client["Poly-Market"]
-db["Users"].create_index("email", unique=True, sparse=True)
-db["Users"].create_index("auth_provider_user_id", unique=True, sparse=True)
+_client = None
+db = None
+_indexes_ready = False
 
 _jwks_client = None
+
+
+def get_db():
+    global _client, db, _indexes_ready
+
+    if db is None:
+        mongo_url = os.getenv("MONGO_URL", "").strip()
+        if not mongo_url:
+            raise ValueError("MONGO_URL not set in environment")
+
+        _client = MongoClient(mongo_url, tlsCAFile=certifi.where())
+        db = _client["Poly-Market"]
+
+    if not _indexes_ready:
+        db["Users"].create_index("email", unique=True, sparse=True)
+        db["Users"].create_index("auth_provider_user_id", unique=True, sparse=True)
+        _indexes_ready = True
+
+    return db
 
 
 def _get_auth0_domain() -> str:
@@ -83,6 +101,7 @@ def _build_new_user_document(claims: dict) -> dict:
 
 
 def get_or_create_user_from_claims(claims: dict) -> dict:
+    db = get_db()
     auth_provider_user_id = claims.get("sub")
     if not auth_provider_user_id:
         raise ValueError("Token missing sub claim")
@@ -139,6 +158,7 @@ def get_local_user_id_from_token(token: str) -> str:
 
 
 def get_user(user_id: str) -> dict:
+    db = get_db()
     try:
         user = db["Users"].find_one({"_id": ObjectId(user_id)})
     except Exception:

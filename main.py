@@ -16,6 +16,10 @@ from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+
+from Accounts import get_local_user_id_from_token, get_user
+from Prediction import back_prediction, create_prediction, get_all_predictions, get_prediction
+
 logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -206,8 +210,14 @@ app = FastAPI(title="Poly-Market API (Auth0 Copy)", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 bearer = HTTPBearer()
+
+
+@app.get("/", include_in_schema=False)
+async def index():
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 @app.get("/health")
