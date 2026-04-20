@@ -1,9 +1,175 @@
+import { Block } from "./blockchain.js";
+import { Blockchain } from "./blockchain.js";
+import { TransactionQueue } from "./blockchain.js";
+
+// State
 const state = {
   token: localStorage.getItem("poly_token") || "",
   user: null,
   activeAuthTab: "login",
   pendingResetToken: "",
+  // P2P additions
+  myId: null,
+  peers: new Map(),   // peerId -> RTCDataChannel
+  seen: new Set(),    // dedup gossip by message hash
+  chain: new Blockchain(),
 };
+
+// P2P MESH
+
+const SIGNAL_URL = "wss://poly-market-production-8e9d.up.railway.app/connect";
+
+let signalingWs = null;
+
+function connectSignaling() {
+  signalingWs = new WebSocket(SIGNAL_URL);
+
+  signalingWs.onmessage = async (e) => {
+    const msg = JSON.parse(e.data);
+
+    if (msg.type === "PEERS") {
+      state.myId = msg.your_id;
+      for (const peerId of msg.connect_to) {
+        await initiateConnection(peerId);
+      }
+    }
+    else if (msg.type === "INCOMING_PEER") {
+      // Server told us a new peer is about to send us an OFFER
+      // nothing to do here — we just wait for the OFFER
+    }
+    else if (msg.type === "CONNECT_TO_NEW_PEER") {
+      // Server told us to connect to someone (emergency bridge or new peer)
+      await initiateConnection(msg.peer_id);
+    }
+    else if (msg.type === "OFFER") {
+      await answerConnection(msg.from, msg.sdp);
+    }
+    else if (msg.type === "ANSWER") {
+      await state.peers.get(msg.from)?.pc.setRemoteDescription(msg.sdp);
+    }
+    else if (msg.type === "ICE") {
+      await state.peers.get(msg.from)?.pc.addIceCandidate(msg.candidate);
+    }
+  };
+
+  signalingWs.onclose = () => {
+    // Reconnect after 3 seconds if connection drops
+    setTimeout(connectSignaling, 3000);
+  };
+}
+
+function signal(msg) {
+  if (signalingWs?.readyState === WebSocket.OPEN) {
+    signalingWs.send(JSON.stringify(msg));
+  }
+}
+
+function newPeerConnection(peerId) {
+  const pc = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+  });
+
+  pc.onicecandidate = (e) => {
+    if (e.candidate) {
+      signal({ type: "ICE", to: peerId, from: state.myId, candidate: e.candidate });
+    }
+  };
+
+  // Store pc under peerId so ANSWER/ICE handlers can find it
+  state.peers.set(peerId, { pc, dc: null });
+  return pc;
+}
+
+function setupDataChannel(dc, peerId) {
+  state.peers.get(peerId).dc = dc;
+
+  dc.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    const hash = e.data;                  // raw string is fine as dedup key
+
+    if (state.seen.has(hash)) return;
+    state.seen.add(hash);
+
+    handleGossip(msg);                    // process locally
+    gossip(msg, peerId);                  // forward to other peers
+  };
+}
+
+async function initiateConnection(peerId) {
+  const pc = newPeerConnection(peerId);
+  const dc = pc.createDataChannel("blockchain");
+  setupDataChannel(dc, peerId);
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  signal({ type: "OFFER", to: peerId, from: state.myId, sdp: offer });
+}
+
+async function answerConnection(peerId, sdp) {
+  const pc = newPeerConnection(peerId);
+  pc.ondatachannel = (e) => setupDataChannel(e.channel, peerId);
+
+  await pc.setRemoteDescription(sdp);
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  signal({ type: "ANSWER", to: peerId, from: state.myId, sdp: answer });
+}
+
+function gossip(msg, excludePeerId = null) {
+  const raw = JSON.stringify(msg);
+  for (const [peerId, { dc }] of state.peers) {
+    if (peerId !== excludePeerId && dc?.readyState === "open") {
+      dc.send(raw);
+    }
+  }
+}
+
+function broadcast(msg) {
+  // Originate a new message from this node
+  const raw = JSON.stringify(msg);
+  state.seen.add(raw);
+  gossip(msg);
+}
+
+function handleGossip(msg) {
+  // Handle blockchain messages arriving from peers
+  if (msg.type === "NEW_BLOCK") {
+    console.log("New block received:", msg.data);
+    // TODO: validate and add to local chain
+  }
+  else if (msg.type === "NEW_TX") {
+    console.log("New transaction received:", msg.data);
+    // TODO: validate and add to local mempool
+  }
+}
+
+// ─────────────────────────────────────────
+// WIRE P2P INTO YOUR EXISTING AUTH FLOW
+// ─────────────────────────────────────────
+
+// In your existing bootAuthenticatedApp — add connectSignaling()
+async function bootAuthenticatedApp() {
+  setView("dashboard");
+  await Promise.all([loadUser(), loadMarkets()]);
+  connectSignaling();                     // start P2P once logged in
+}
+
+// In your existing logout — clean up P2P
+function logout() {
+  setToken("");
+  state.user = null;
+
+  // Clean up P2P
+  signalingWs?.close();
+  for (const { pc } of state.peers.values()) pc.close();
+  state.peers.clear();
+  state.seen.clear();
+  state.myId = null;
+
+  window.history.replaceState({}, "", "/");
+  setView("auth");
+  setMessage("Logged out.");
+}
 
 const elements = {
   authView: document.getElementById("auth-view"),
