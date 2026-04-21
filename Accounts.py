@@ -6,6 +6,7 @@ import jwt
 from bson import ObjectId
 from dotenv import load_dotenv
 from pymongo import MongoClient
+from pymongo.errors import PyMongoError
 
 load_dotenv()
 
@@ -16,36 +17,68 @@ _indexes_ready = False
 _jwks_client = None
 
 
+class ConfigurationError(Exception):
+    pass
+
+
+class ServiceUnavailableError(Exception):
+    pass
+
+
+def _get_env(*names: str) -> str:
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _get_mongo_client(mongo_url: str) -> MongoClient:
+    client_options = {"serverSelectionTimeoutMS": 5000}
+    if mongo_url.startswith("mongodb+srv://"):
+        client_options["tlsCAFile"] = certifi.where()
+    return MongoClient(mongo_url, **client_options)
+
+
 def get_db():
     global _client, db, _indexes_ready
 
     if db is None:
-        mongo_url = os.getenv("MONGO_URL", "").strip()
+        mongo_url = _get_env("MONGO_URL", "MONGODB_URI", "MONGO_URI", "DATABASE_URL")
         if not mongo_url:
-            raise ValueError("MONGO_URL not set in environment")
+            raise ConfigurationError(
+                "Mongo connection string is not set. Expected one of MONGO_URL, MONGODB_URI, MONGO_URI, or DATABASE_URL."
+            )
 
-        _client = MongoClient(mongo_url, tlsCAFile=certifi.where())
-        db = _client["Poly-Market"]
+        try:
+            _client = _get_mongo_client(mongo_url)
+            _client.admin.command("ping")
+            db = _client["Poly-Market"]
+        except PyMongoError as exc:
+            raise ServiceUnavailableError(f"MongoDB connection failed: {exc}") from exc
 
     if not _indexes_ready:
-        db["Users"].create_index("email", unique=True, sparse=True)
-        db["Users"].create_index("auth_provider_user_id", unique=True, sparse=True)
-        _indexes_ready = True
+        try:
+            db["Users"].create_index("email", unique=True, sparse=True)
+            db["Users"].create_index("auth_provider_user_id", unique=True, sparse=True)
+            _indexes_ready = True
+        except PyMongoError as exc:
+            raise ServiceUnavailableError(f"Failed to initialize MongoDB indexes: {exc}") from exc
 
     return db
 
 
 def _get_auth0_domain() -> str:
-    domain = os.getenv("AUTH0_DOMAIN", "").strip()
+    domain = _get_env("AUTH0_DOMAIN")
     if not domain:
-        raise ValueError("AUTH0_DOMAIN not set in environment")
+        raise ConfigurationError("AUTH0_DOMAIN not set in environment")
     return domain.removeprefix("https://").rstrip("/")
 
 
 def _get_auth0_audience() -> str:
-    audience = os.getenv("AUTH0_AUDIENCE", "").strip()
+    audience = _get_env("AUTH0_AUDIENCE")
     if not audience:
-        raise ValueError("AUTH0_AUDIENCE not set in environment")
+        raise ConfigurationError("AUTH0_AUDIENCE not set in environment")
     return audience
 
 
@@ -106,49 +139,52 @@ def get_or_create_user_from_claims(claims: dict) -> dict:
     if not auth_provider_user_id:
         raise ValueError("Token missing sub claim")
 
-    user = db["Users"].find_one({"auth_provider_user_id": auth_provider_user_id})
-    if user:
-        updates = {
-            "last_login_at": datetime.now(timezone.utc),
-        }
-
-        if claims.get("email"):
-            updates["email"] = claims["email"].lower().strip()
-        if claims.get("name"):
-            updates["name"] = claims["name"]
-        if "email_verified" in claims:
-            updates["email_verified"] = bool(claims["email_verified"])
-        if claims.get("picture"):
-            updates["picture"] = claims["picture"]
-
-        db["Users"].update_one({"_id": user["_id"]}, {"$set": updates})
-        user.update(updates)
-        return user
-
-    email = (claims.get("email") or "").lower().strip()
-    if email:
-        existing_user = db["Users"].find_one({"email": email})
-        if existing_user:
+    try:
+        user = db["Users"].find_one({"auth_provider_user_id": auth_provider_user_id})
+        if user:
             updates = {
-                "auth_provider": "auth0",
-                "auth_provider_user_id": auth_provider_user_id,
-                "email_verified": bool(claims.get("email_verified")),
                 "last_login_at": datetime.now(timezone.utc),
             }
+
+            if claims.get("email"):
+                updates["email"] = claims["email"].lower().strip()
             if claims.get("name"):
                 updates["name"] = claims["name"]
+            if "email_verified" in claims:
+                updates["email_verified"] = bool(claims["email_verified"])
             if claims.get("picture"):
                 updates["picture"] = claims["picture"]
 
-            db["Users"].update_one({"_id": existing_user["_id"]}, {"$set": updates})
-            existing_user.update(updates)
-            return existing_user
+            db["Users"].update_one({"_id": user["_id"]}, {"$set": updates})
+            user.update(updates)
+            return user
 
-    result = db["Users"].insert_one(_build_new_user_document(claims))
-    user = db["Users"].find_one({"_id": result.inserted_id})
-    if not user:
-        raise ValueError("Failed to create user")
-    return user
+        email = (claims.get("email") or "").lower().strip()
+        if email:
+            existing_user = db["Users"].find_one({"email": email})
+            if existing_user:
+                updates = {
+                    "auth_provider": "auth0",
+                    "auth_provider_user_id": auth_provider_user_id,
+                    "email_verified": bool(claims.get("email_verified")),
+                    "last_login_at": datetime.now(timezone.utc),
+                }
+                if claims.get("name"):
+                    updates["name"] = claims["name"]
+                if claims.get("picture"):
+                    updates["picture"] = claims["picture"]
+
+                db["Users"].update_one({"_id": existing_user["_id"]}, {"$set": updates})
+                existing_user.update(updates)
+                return existing_user
+
+        result = db["Users"].insert_one(_build_new_user_document(claims))
+        user = db["Users"].find_one({"_id": result.inserted_id})
+        if not user:
+            raise ValueError("Failed to create user")
+        return user
+    except PyMongoError as exc:
+        raise ServiceUnavailableError(f"MongoDB user operation failed: {exc}") from exc
 
 
 def get_local_user_id_from_token(token: str) -> str:
@@ -160,9 +196,14 @@ def get_local_user_id_from_token(token: str) -> str:
 def get_user(user_id: str) -> dict:
     db = get_db()
     try:
-        user = db["Users"].find_one({"_id": ObjectId(user_id)})
+        object_id = ObjectId(user_id)
     except Exception:
         raise ValueError("Invalid user id")
+
+    try:
+        user = db["Users"].find_one({"_id": object_id})
+    except PyMongoError as exc:
+        raise ServiceUnavailableError(f"MongoDB user lookup failed: {exc}") from exc
 
     if not user:
         raise ValueError("User not found")

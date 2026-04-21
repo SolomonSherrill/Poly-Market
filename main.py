@@ -18,7 +18,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 import time
 
-from Accounts import get_local_user_id_from_token, get_user
+from Accounts import ConfigurationError, ServiceUnavailableError, get_local_user_id_from_token, get_user
 from Prediction import back_prediction, create_prediction, get_all_predictions, get_prediction
 
 logger = logging.getLogger(__name__)
@@ -313,6 +313,8 @@ class BackPredictionRequest(BaseModel):
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer)) -> str:
     try:
         return get_local_user_id_from_token(credentials.credentials)
+    except (ConfigurationError, ServiceUnavailableError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=401, detail=str(exc))
 
@@ -326,6 +328,8 @@ async def reset_password_page(token: str):
 async def me(user_id: str = Depends(get_current_user)):
     try:
         return get_user(user_id)
+    except (ConfigurationError, ServiceUnavailableError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
@@ -338,6 +342,8 @@ async def post_prediction(
 ):
     try:
         return create_prediction(user_id, body.bet_string, body.is_high_low, body.is_yes_no, body.end_time)
+    except (ConfigurationError, ServiceUnavailableError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -350,6 +356,8 @@ async def back_prediction_route(
 ):
     try:
         return back_prediction(body.prediction_id, user_id, body.amount, body.is_yes)
+    except (ConfigurationError, ServiceUnavailableError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -358,6 +366,8 @@ async def back_prediction_route(
 async def get_all_predictions_route(user_id: str = Depends(get_current_user)):
     try:
         return get_all_predictions()
+    except (ConfigurationError, ServiceUnavailableError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -366,5 +376,7 @@ async def get_all_predictions_route(user_id: str = Depends(get_current_user)):
 async def get_prediction_route(prediction_id: str, user_id: str = Depends(get_current_user)):
     try:
         return get_prediction(prediction_id)
+    except (ConfigurationError, ServiceUnavailableError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
