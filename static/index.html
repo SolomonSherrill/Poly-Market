@@ -8,35 +8,40 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css">
+  <script src="https://cdn.auth0.com/js/auth0-spa-js/2.1/auth0-spa-js.production.js" defer></script>
 </head>
-<body>
+<body
+  data-auth0-domain="dev-ti5ylgf1v4ze1wq8.us.auth0.com"
+  data-auth0-client-id="080Yw9NmpP9mJVEdRqe8JtMi8aeETjxi"
+  data-auth0-audience="https://poly-market-api"
+>
   <div class="shell">
     <aside class="hero-panel">
       <div class="brand-lockup">
         <div class="brand-badge">PM</div>
         <div>
           <p class="eyebrow">Railway-ready prediction exchange</p>
-          <h1>Trade opinions in a royal blue market shell.</h1>
+          <h1>Trade opinions with Auth0-backed account access.</h1>
         </div>
       </div>
 
       <p class="hero-copy">
-        A polished login flow, responsive market dashboard, and integrated Yes/No betting actions
-        wired directly into your existing FastAPI endpoints.
+        Universal Login now issues the same Auth0 access token your FastAPI app already verifies
+        before serving account, prediction, and websocket traffic.
       </p>
 
       <div class="hero-grid">
         <article class="stat-card">
           <span class="stat-label">Market Speed</span>
-          <strong>Instant auth + betting</strong>
+          <strong>Auth0 token to API in one flow</strong>
         </article>
         <article class="stat-card">
           <span class="stat-label">Deployment</span>
           <strong>Single Railway service</strong>
         </article>
         <article class="stat-card">
-          <span class="stat-label">Style</span>
-          <strong>Royal blue / white Kalshi feel</strong>
+          <span class="stat-label">Session</span>
+          <strong>Shared login for REST + websocket</strong>
         </article>
       </div>
     </aside>
@@ -57,78 +62,30 @@
 
       <section id="auth-view" class="auth-layout">
         <div class="panel">
-          <div class="tabs" role="tablist" aria-label="Authentication">
-            <button id="login-tab" class="tab active" type="button">Login</button>
-            <button id="register-tab" class="tab" type="button">Register</button>
+          <div class="section-heading">
+            <p class="panel-kicker">Auth0 login</p>
+            <h3>Use Universal Login to enter the market</h3>
           </div>
 
-          <form id="login-form" class="stack">
-            <label class="field">
-              <span>Email</span>
-              <input name="email" type="email" placeholder="you@example.com" required>
-            </label>
-            <label class="field">
-              <span>Password</span>
-              <input name="password" type="password" placeholder="Enter your password" required>
-            </label>
-            <button class="primary-button" type="submit">Login</button>
-          </form>
-
-          <form id="register-form" class="stack hidden">
-            <label class="field">
-              <span>Name</span>
-              <input name="name" type="text" placeholder="Your full name" required>
-            </label>
-            <label class="field">
-              <span>Email</span>
-              <input name="email" type="email" placeholder="you@example.com" required>
-            </label>
-            <label class="field">
-              <span>Password</span>
-              <input name="password" type="password" placeholder="At least 8 chars, 1 uppercase, 1 number" required>
-            </label>
-            <button class="primary-button" type="submit">Create account</button>
-          </form>
-
-          <form id="forgot-form" class="inline-form">
-            <label class="field compact-field">
-              <span>Need a reset link?</span>
-              <input name="email" type="email" placeholder="Enter your email">
-            </label>
-            <button class="secondary-button" type="submit">Send reset</button>
-          </form>
-
-          <form id="resend-form" class="inline-form">
-            <label class="field compact-field">
-              <span>Need verification again?</span>
-              <input name="email" type="email" placeholder="Enter your email">
-            </label>
-            <button class="secondary-button" type="submit">Resend email</button>
-          </form>
+          <div class="stack">
+            <p class="hero-copy auth-copy">
+              The frontend now requests an Auth0 access token for the
+              <code>https://poly-market-api</code> audience and sends it directly to your FastAPI
+              routes as a Bearer token.
+            </p>
+            <button id="login-button" class="primary-button" type="button">Continue with Auth0</button>
+            <button id="signup-button" class="secondary-button" type="button">Create account</button>
+          </div>
         </div>
 
         <div class="panel panel-accent">
           <p class="panel-kicker">What you get</p>
           <ul class="feature-list">
-            <li>Integrated account creation, login, reset, and verification flows</li>
-            <li>Live market cards pulled from your existing prediction functions</li>
-            <li>Large Yes / No buttons and stake controls for placing positions</li>
+            <li>Auth0 Universal Login and sign-up instead of dead local password forms</li>
+            <li>REST requests authenticated with the same JWT your FastAPI code verifies</li>
+            <li>Authenticated websocket startup using the current access token</li>
           </ul>
         </div>
-      </section>
-
-      <section id="reset-view" class="panel hidden">
-        <div class="section-heading">
-          <p class="panel-kicker">Password reset</p>
-          <h3>Set a new password</h3>
-        </div>
-        <form id="reset-password-form" class="stack">
-          <label class="field">
-            <span>New password</span>
-            <input name="new_password" type="password" placeholder="Strong password" required>
-          </label>
-          <button class="primary-button" type="submit">Update password</button>
-        </form>
       </section>
 
       <section id="dashboard-view" class="dashboard hidden">
@@ -216,6 +173,6 @@
     </article>
   </template>
 
-  <script src="/static/app.js" defer></script>
+  <script type="module" src="/static/app.js"></script>
 </body>
 </html>
