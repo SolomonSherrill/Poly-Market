@@ -57,7 +57,7 @@ export class Blockchain {
         this.current = new Block(1, genesis.hash);
         this.chain = [genesis, this.current];
 
-        // Watch queue — seal a block every time it hits 200
+        // Watch queue and seal a block every time it hits 200
         this.queue.onChange = async () => {
             if (this.queue.size() >= 200) {
                 await this.sealBlock();

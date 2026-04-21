@@ -35,7 +35,7 @@ function connectSignaling() {
     }
     else if (msg.type === "INCOMING_PEER") {
       // Server told us a new peer is about to send us an OFFER
-      // nothing to do here — we just wait for the OFFER
+      // nothing to do here we just wait for the OFFER
     }
     else if (msg.type === "CONNECT_TO_NEW_PEER") {
       // Server told us to connect to someone (emergency bridge or new peer)
@@ -143,18 +143,16 @@ function handleGossip(msg) {
   }
 }
 
-// ─────────────────────────────────────────
 // WIRE P2P INTO YOUR EXISTING AUTH FLOW
-// ─────────────────────────────────────────
 
-// In your existing bootAuthenticatedApp — add connectSignaling()
+// In your existing bootAuthenticatedApp add connectSignaling()
 async function bootAuthenticatedApp() {
   setView("dashboard");
   await Promise.all([loadUser(), loadMarkets()]);
   connectSignaling();                     // start P2P once logged in
 }
 
-// In your existing logout — clean up P2P
+// In your existing logout clean up P2P
 function logout() {
   setToken("");
   state.user = null;
