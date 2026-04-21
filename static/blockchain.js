@@ -139,7 +139,7 @@ export class Blockchain {
 // Transaction Queue
 // Sorted by timestamp, tiebroken by 32-bit hash of the data
 
-class TransactionQueue {
+export class TransactionQueue {
     constructor() {
         this.transactions = [];
         this.onChange = null;       // callback set by Blockchain
