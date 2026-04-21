@@ -107,6 +107,10 @@ def verify_auth0_token(token: str) -> dict:
         raise ValueError("Token has expired")
     except jwt.InvalidTokenError as exc:
         raise ValueError(f"Invalid token: {exc}")
+    except ConfigurationError:
+        raise
+    except Exception as exc:
+        raise ServiceUnavailableError(f"Auth0 token verification failed: {exc}") from exc
 
 
 def _build_new_user_document(claims: dict) -> dict:

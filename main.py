@@ -253,7 +253,7 @@ def network_state():
 async def connect(ws: WebSocket, token: str = Query(...)):
     try:
         user_id = get_local_user_id_from_token(token)
-    except ValueError:
+    except (ConfigurationError, ServiceUnavailableError, ValueError):
         await ws.close(code=1008)
         return
 
