@@ -3,7 +3,8 @@ uvicorn[standard]
 pymongo
 certifi
 python-dotenv
-pyjwt
+pyjwt[crypto]
 slowapi
 pydantic
 numpy
+cryptography
