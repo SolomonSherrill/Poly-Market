@@ -215,6 +215,22 @@ h1 {
   gap: 16px;
 }
 
+.auth-action-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.auth-copy {
+  max-width: none;
+  color: var(--muted);
+}
+
+.auth-status {
+  min-height: 1.5em;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
 .field {
   display: grid;
   gap: 8px;
@@ -257,6 +273,14 @@ h1 {
 .ghost-button:hover,
 .bet-button:hover {
   transform: translateY(-1px);
+}
+
+.primary-button:disabled,
+.secondary-button:disabled,
+.ghost-button:disabled,
+.bet-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
 }
 
 .primary-button {

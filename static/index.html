@@ -64,7 +64,7 @@
         <div class="panel">
           <div class="section-heading">
             <p class="panel-kicker">Auth0 login</p>
-            <h3>Use Universal Login to enter the market</h3>
+            <h3 id="auth-title">Use Universal Login to enter the market</h3>
           </div>
 
           <div class="stack">
@@ -73,8 +73,11 @@
               <code>https://poly-market-api</code> audience and sends it directly to your FastAPI
               routes as a Bearer token.
             </p>
-            <button id="login-button" class="primary-button" type="button">Continue with Auth0</button>
-            <button id="signup-button" class="secondary-button" type="button">Create account</button>
+            <div class="auth-action-grid">
+              <button id="login-button" class="primary-button" type="button">Continue with Auth0</button>
+              <button id="signup-button" class="secondary-button" type="button">Create account</button>
+            </div>
+            <p id="auth-status" class="auth-status">Choose sign in if you already have an account, or create one through Auth0.</p>
           </div>
         </div>
 

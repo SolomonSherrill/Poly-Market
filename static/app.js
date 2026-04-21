@@ -21,6 +21,8 @@ const elements = {
   authView: document.getElementById("auth-view"),
   dashboardView: document.getElementById("dashboard-view"),
   messageBanner: document.getElementById("message-banner"),
+  authTitle: document.getElementById("auth-title"),
+  authStatus: document.getElementById("auth-status"),
   loginButton: document.getElementById("login-button"),
   signupButton: document.getElementById("signup-button"),
   logoutButton: document.getElementById("logout-button"),
@@ -35,6 +37,47 @@ const elements = {
 };
 
 let signalingWs = null;
+
+function setAuthStatus(text) {
+  if (elements.authStatus) {
+    elements.authStatus.textContent = text;
+  }
+}
+
+function setAuthButtonsDisabled(disabled) {
+  elements.loginButton.disabled = disabled;
+  elements.signupButton.disabled = disabled;
+}
+
+function buildAuthorizeUrl(mode = "login") {
+  const url = new URL(`https://${authConfig.domain}/authorize`);
+  url.searchParams.set("client_id", authConfig.clientId);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("redirect_uri", authConfig.redirectUri);
+  url.searchParams.set("scope", "openid profile email");
+  url.searchParams.set("audience", authConfig.audience);
+  if (mode === "signup") {
+    url.searchParams.set("screen_hint", "signup");
+  }
+  return url.toString();
+}
+
+function redirectToUniversalLogin(mode = "login") {
+  window.location.assign(buildAuthorizeUrl(mode));
+}
+
+async function waitForAuth0Sdk(timeoutMs = 8000) {
+  const start = Date.now();
+
+  while (!window.auth0?.createAuth0Client) {
+    if (Date.now() - start > timeoutMs) {
+      return false;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
+  }
+
+  return true;
+}
 
 function getWebSocketUrl(token) {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -374,6 +417,11 @@ async function refreshAccessToken() {
 }
 
 async function login() {
+  if (!state.auth0) {
+    redirectToUniversalLogin("login");
+    return;
+  }
+
   await state.auth0.loginWithRedirect({
     authorizationParams: {
       audience: authConfig.audience,
@@ -383,6 +431,11 @@ async function login() {
 }
 
 async function signup() {
+  if (!state.auth0) {
+    redirectToUniversalLogin("signup");
+    return;
+  }
+
   await state.auth0.loginWithRedirect({
     authorizationParams: {
       audience: authConfig.audience,
@@ -396,6 +449,12 @@ async function logout() {
   cleanupRealtime();
   setToken("");
   state.user = null;
+
+  if (!state.auth0) {
+    window.location.assign(window.location.origin);
+    return;
+  }
+
   await state.auth0.logout({
     logoutParams: {
       returnTo: window.location.origin,
@@ -428,8 +487,14 @@ async function handleCreateMarket(event) {
 }
 
 async function initializeAuth() {
-  if (!window.auth0?.createAuth0Client) {
-    throw new Error("Auth0 SDK failed to load.");
+  setAuthButtonsDisabled(true);
+  setAuthStatus("Connecting to Auth0...");
+
+  const sdkLoaded = await waitForAuth0Sdk();
+  if (!sdkLoaded) {
+    setAuthButtonsDisabled(false);
+    setAuthStatus("Auth0 SDK did not load. The buttons will use a direct redirect fallback.");
+    return;
   }
 
   state.auth0 = await window.auth0.createAuth0Client({
@@ -448,26 +513,41 @@ async function initializeAuth() {
   const hasAuthRedirectParams = search.has("code") && search.has("state");
 
   if (hasAuthRedirectParams) {
+    setAuthStatus("Finishing sign-in...");
     await state.auth0.handleRedirectCallback();
     window.history.replaceState({}, document.title, window.location.pathname);
   }
 
   const isAuthenticated = await state.auth0.isAuthenticated();
   if (!isAuthenticated) {
+    setAuthButtonsDisabled(false);
+    setAuthStatus("Choose sign in if you already have an account, or create one through Auth0.");
     setView("auth");
     return;
   }
 
   await refreshAccessToken();
   await bootAuthenticatedApp();
+  setAuthButtonsDisabled(false);
+  setAuthStatus("Signed in.");
 }
 
 function attachEvents() {
   elements.loginButton.addEventListener("click", () => {
-    login().catch((error) => setMessage(error.message, "error"));
+    setAuthStatus("Redirecting to Auth0 sign in...");
+    login().catch((error) => {
+      setAuthButtonsDisabled(false);
+      setAuthStatus("Sign in could not start.");
+      setMessage(error.message, "error");
+    });
   });
   elements.signupButton.addEventListener("click", () => {
-    signup().catch((error) => setMessage(error.message, "error"));
+    setAuthStatus("Redirecting to Auth0 sign up...");
+    signup().catch((error) => {
+      setAuthButtonsDisabled(false);
+      setAuthStatus("Sign up could not start.");
+      setMessage(error.message, "error");
+    });
   });
   elements.logoutButton.addEventListener("click", () => {
     logout().catch((error) => setMessage(error.message, "error"));
@@ -486,13 +566,16 @@ function attachEvents() {
 async function initializeApp() {
   attachEvents();
   setView("auth");
+  setAuthStatus("Preparing login...");
 
   try {
     await initializeAuth();
   } catch (error) {
     setToken("");
     cleanupRealtime();
+    setAuthButtonsDisabled(false);
     setView("auth");
+    setAuthStatus("Login is available, but setup needs attention.");
     setMessage(error.message, "error");
   }
 }
