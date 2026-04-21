@@ -9,13 +9,14 @@ from pathlib import Path
 
 import numpy as np
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+import time
 
 from Accounts import get_local_user_id_from_token, get_user
 from Prediction import back_prediction, create_prediction, get_all_predictions, get_prediction
@@ -217,7 +218,12 @@ bearer = HTTPBearer()
 
 @app.get("/", include_in_schema=False)
 async def index():
-    return FileResponse(STATIC_DIR / "index.html")
+    html = Path("static/index.html").read_text()
+    html = html.replace(
+        '<script src="/static/app.js"></script>',
+        f'<script src="/static/app.js?v={int(time.time())}"></script>'
+    )
+    return HTMLResponse(html)
 
 
 @app.get("/health")

@@ -1,4 +1,6 @@
 import { Blockchain } from "./blockchain.js";
+import { Block } from "./blockchain.js";
+import { TransactionQueue } from "./blockchain.js";
 
 const authConfig = {
   domain: document.body.dataset.auth0Domain,
