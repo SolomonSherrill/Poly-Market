@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from importlib import metadata
 import os
 
 import certifi
@@ -38,6 +39,39 @@ def _get_mongo_client(mongo_url: str) -> MongoClient:
     if mongo_url.startswith("mongodb+srv://"):
         client_options["tlsCAFile"] = certifi.where()
     return MongoClient(mongo_url, **client_options)
+
+
+def _get_installed_version(package_name: str) -> str:
+    try:
+        return metadata.version(package_name)
+    except metadata.PackageNotFoundError:
+        return "not-installed"
+
+
+def _ensure_rs256_support():
+    jwt_version = _get_installed_version("PyJWT")
+    crypto_version = _get_installed_version("cryptography")
+
+    try:
+        from jwt.algorithms import has_crypto
+    except Exception as exc:
+        raise ServiceUnavailableError(
+            f"PyJWT import is incomplete (PyJWT={jwt_version}, cryptography={crypto_version}): {exc}"
+        ) from exc
+
+    if has_crypto:
+        return
+
+    try:
+        import cryptography  # noqa: F401
+    except Exception as exc:
+        raise ServiceUnavailableError(
+            f"RS256 crypto backend unavailable (PyJWT={jwt_version}, cryptography={crypto_version}): {exc}"
+        ) from exc
+
+    raise ServiceUnavailableError(
+        f"RS256 crypto backend unavailable even though cryptography is importable (PyJWT={jwt_version}, cryptography={crypto_version})."
+    )
 
 
 def get_db():
@@ -93,6 +127,7 @@ def _get_jwks_client() -> jwt.PyJWKClient:
 def verify_auth0_token(token: str) -> dict:
     domain = _get_auth0_domain()
     audience = _get_auth0_audience()
+    _ensure_rs256_support()
 
     try:
         signing_key = _get_jwks_client().get_signing_key_from_jwt(token)
@@ -117,7 +152,7 @@ def _build_new_user_document(claims: dict) -> dict:
     document = {
         "auth_provider": "auth0",
         "auth_provider_user_id": claims["sub"],
-        "balance": 0.0,
+        "balance": 100.0,
         "total_wins": 0,
         "total_losses": 0,
         "net_profit": 0.0,
@@ -161,6 +196,7 @@ def get_or_create_user_from_claims(claims: dict) -> dict:
 
             db["Users"].update_one({"_id": user["_id"]}, {"$set": updates})
             user.update(updates)
+            user["was_just_created"] = False
             return user
 
         email = (claims.get("email") or "").lower().strip()
@@ -180,21 +216,30 @@ def get_or_create_user_from_claims(claims: dict) -> dict:
 
                 db["Users"].update_one({"_id": existing_user["_id"]}, {"$set": updates})
                 existing_user.update(updates)
+                existing_user["was_just_created"] = False
                 return existing_user
 
         result = db["Users"].insert_one(_build_new_user_document(claims))
         user = db["Users"].find_one({"_id": result.inserted_id})
         if not user:
             raise ValueError("Failed to create user")
+        user["was_just_created"] = True
         return user
     except PyMongoError as exc:
         raise ServiceUnavailableError(f"MongoDB user operation failed: {exc}") from exc
 
 
-def get_local_user_id_from_token(token: str) -> str:
+def get_local_user_context_from_token(token: str) -> dict:
     claims = verify_auth0_token(token)
     user = get_or_create_user_from_claims(claims)
-    return str(user["_id"])
+    return {
+        "user_id": str(user["_id"]),
+        "was_just_created": bool(user.get("was_just_created", False)),
+    }
+
+
+def get_local_user_id_from_token(token: str) -> str:
+    return get_local_user_context_from_token(token)["user_id"]
 
 
 def get_user(user_id: str) -> dict:
@@ -222,4 +267,5 @@ def get_user(user_id: str) -> dict:
         "created_at": user["created_at"],
         "auth_provider": user.get("auth_provider"),
         "auth_provider_user_id": user.get("auth_provider_user_id"),
+        "was_just_created": bool(user.get("was_just_created", False)),
     }

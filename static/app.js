@@ -1,6 +1,4 @@
 import { Blockchain } from "./blockchain.js";
-import { Block } from "./blockchain.js";
-import { TransactionQueue } from "./blockchain.js";
 
 const authConfig = {
   domain: document.body.dataset.auth0Domain,
@@ -197,6 +195,7 @@ function handleGossip(message) {
   if (message.type === "NEW_BLOCK") {
     console.log("New block received:", message.data);
   } else if (message.type === "NEW_TX") {
+    queueBlockchainEvent(message.data);
     console.log("New transaction received:", message.data);
   }
 }
@@ -208,6 +207,22 @@ function gossip(message, excludePeerId = null) {
       dc.send(raw);
     }
   }
+}
+
+async function queueBlockchainEvent(eventData) {
+  if (!eventData?.event_type) {
+    return;
+  }
+
+  await state.chain.enqueueTransaction(eventData.event_type, eventData);
+}
+
+async function broadcastBlockchainEvent(eventData) {
+  await queueBlockchainEvent(eventData);
+  gossip({
+    type: "NEW_TX",
+    data: eventData,
+  });
 }
 
 function setupDataChannel(dc, peerId) {
@@ -330,6 +345,17 @@ async function loadUser() {
   elements.userBalance.textContent = formatMoney(user.balance);
   elements.userEmail.textContent = user.email || "-";
   elements.welcomeTitle.textContent = `Welcome back, ${user.name || "trader"}`;
+
+  if (user.was_just_created) {
+    await broadcastBlockchainEvent({
+      event_type: "USER_CREATED",
+      user_id: user.id,
+      name: user.name || "Auth0 User",
+      email: user.email || null,
+      starting_balance: user.balance,
+      timestamp: Date.now(),
+    });
+  }
 }
 
 function renderMarketCard(prediction) {
@@ -476,9 +502,19 @@ async function handleCreateMarket(event) {
       end_time: new Date(formData.get("end_time")).toISOString(),
     };
 
-    await api("/predictions/post-prediction", {
+    const prediction = await api("/predictions/post-prediction", {
       method: "POST",
       body: JSON.stringify(payload),
+    });
+    await broadcastBlockchainEvent({
+      event_type: "PREDICTION_CREATED",
+      prediction_id: prediction.id,
+      creator_id: prediction.creator_id,
+      bet_string: prediction.bet_string,
+      bet_type: prediction.bet_type,
+      end_time: prediction.end_time,
+      created_at: prediction.created_at,
+      timestamp: Date.now(),
     });
     elements.createMarketForm.reset();
     setMessage("Prediction posted.");

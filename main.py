@@ -18,7 +18,13 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 import time
 
-from Accounts import ConfigurationError, ServiceUnavailableError, get_local_user_id_from_token, get_user
+from Accounts import (
+    ConfigurationError,
+    ServiceUnavailableError,
+    get_local_user_context_from_token,
+    get_local_user_id_from_token,
+    get_user,
+)
 from Prediction import back_prediction, create_prediction, get_all_predictions, get_prediction
 
 logger = logging.getLogger(__name__)
@@ -319,15 +325,28 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer)
         raise HTTPException(status_code=401, detail=str(exc))
 
 
+def get_current_user_context(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer),
+) -> dict:
+    try:
+        return get_local_user_context_from_token(credentials.credentials)
+    except (ConfigurationError, ServiceUnavailableError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+
+
 @app.get("/auth/reset-password")
 async def reset_password_page(token: str):
     return RedirectResponse(url=f"/?mode=reset&token={token}", status_code=303)
 
 
 @app.get("/users/me")
-async def me(user_id: str = Depends(get_current_user)):
+async def me(user_context: dict = Depends(get_current_user_context)):
     try:
-        return get_user(user_id)
+        user = get_user(user_context["user_id"])
+        user["was_just_created"] = user_context["was_just_created"]
+        return user
     except (ConfigurationError, ServiceUnavailableError) as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except ValueError as exc:

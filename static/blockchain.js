@@ -39,12 +39,9 @@ export class Block {
         this.hash = await this.calculateHash();
     }
 
-    addBet(prediction_id, user_id, amount, is_yes) {
+    addTransaction(transaction) {
         this.data.push({
-            prediction_id,
-            user_id,
-            amount,
-            bet_type: is_yes ? "yes" : "no"
+            ...transaction
         });
     }
 }
@@ -82,12 +79,7 @@ export class Blockchain {
     async sealBlock() {
         const transactions = this.queue.drain(100);
         for (const tx of transactions) {
-            this.current.addBet(
-                tx.prediction_id,
-                tx.user_id,
-                tx.amount,
-                tx.bet_type === "yes"
-            );
+            this.current.addTransaction(tx);
         }
         await this.current.fakeMine();
         this.addBlock(this.current);
@@ -99,12 +91,19 @@ export class Blockchain {
 
     // Add a bet to the queue instead of directly to the block
     async enqueueBet(prediction_id, user_id, amount, is_yes) {
-        this.queue.push({
+        return this.enqueueTransaction("BET_PLACED", {
             prediction_id,
             user_id,
             amount,
             bet_type: is_yes ? "yes" : "no",
-            timestamp: Date.now()
+        });
+    }
+
+    async enqueueTransaction(eventType, payload = {}) {
+        this.queue.push({
+            event_type: eventType,
+            ...payload,
+            timestamp: payload.timestamp ?? Date.now()
         });
     }
 

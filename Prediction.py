@@ -25,7 +25,14 @@ def create_prediction(creator_id: str, bet_string: str, is_high_low: bool, is_ye
     }
     try:
         result = db["Predictions"].insert_one(prediction)
-        return str(result.inserted_id)
+        return {
+            "id": str(result.inserted_id),
+            "creator_id": creator_id,
+            "bet_string": bet_string,
+            "bet_type": bet_type,
+            "end_time": end_time,
+            "created_at": prediction["created_at"],
+        }
     except PyMongoError as exc:
         raise ServiceUnavailableError(f"MongoDB prediction creation failed: {exc}") from exc
 
