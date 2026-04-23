@@ -1,6 +1,9 @@
 from datetime import datetime, timezone
 from importlib import metadata
+import json
 import os
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 import certifi
 import jwt
@@ -148,6 +151,37 @@ def verify_auth0_token(token: str) -> dict:
         raise ServiceUnavailableError(f"Auth0 token verification failed: {exc}") from exc
 
 
+def fetch_auth0_userinfo(token: str) -> dict:
+    domain = _get_auth0_domain()
+    request = Request(
+        f"https://{domain}/userinfo",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+        },
+    )
+
+    try:
+        with urlopen(request, timeout=5) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        raise ServiceUnavailableError(f"Auth0 /userinfo request failed with status {exc.code}") from exc
+    except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+        raise ServiceUnavailableError(f"Auth0 /userinfo request failed: {exc}") from exc
+
+
+def _merge_auth0_profile(claims: dict, profile: dict | None) -> dict:
+    merged = dict(claims)
+    if not profile:
+        return merged
+
+    for field in ("sub", "email", "email_verified", "name", "picture", "given_name", "family_name", "nickname"):
+        if profile.get(field) is not None:
+            merged[field] = profile[field]
+
+    return merged
+
+
 def _build_new_user_document(claims: dict) -> dict:
     document = {
         "auth_provider": "auth0",
@@ -240,7 +274,9 @@ def get_or_create_user_from_claims(claims: dict) -> dict:
 
 def get_local_user_context_from_token(token: str) -> dict:
     claims = verify_auth0_token(token)
-    user = get_or_create_user_from_claims(claims)
+    profile = fetch_auth0_userinfo(token)
+    merged_claims = _merge_auth0_profile(claims, profile)
+    user = get_or_create_user_from_claims(merged_claims)
     return {
         "user_id": str(user["_id"]),
         "was_just_created": bool(user.get("was_just_created", False)),

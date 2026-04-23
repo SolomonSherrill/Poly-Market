@@ -9,6 +9,12 @@ from Accounts import ServiceUnavailableError, get_db
 load_dotenv()
 
 
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def create_prediction(creator_id: str, bet_string: str, is_high_low: bool, is_yes_no: bool, end_time: datetime):
     db = get_db()
     bet_type = "high_low" if is_high_low else "yes_no" if is_yes_no else "other"
@@ -84,7 +90,13 @@ def back_prediction(prediction_id: str, user_id: str, amount: float, is_yes: boo
         raise ServiceUnavailableError(f"MongoDB bet lookup failed: {exc}") from exc
     if not user or user["balance"] < amount:
         return {"success": False, "message": "Insufficient balance"}
-    if not prediction or prediction["resolved"] or prediction["end_time"] < datetime.now(timezone.utc):
+    if amount <= 0:
+        raise ValueError("Amount must be greater than 0")
+    if not prediction:
+        return {"success": False, "message": "Prediction not found"}
+
+    prediction_end_time = _as_utc(prediction["end_time"])
+    if prediction["resolved"] or prediction_end_time < datetime.now(timezone.utc):
         return {"success": False, "message": "Prediction is resolved or has expired"}
     bet_type = "yes" if is_yes else "no"
     bet = {
