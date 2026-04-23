@@ -7,7 +7,7 @@ import jwt
 from bson import ObjectId
 from dotenv import load_dotenv
 from pymongo import MongoClient
-from pymongo.errors import PyMongoError
+from pymongo.errors import DuplicateKeyError, PyMongoError
 
 load_dotenv()
 
@@ -219,12 +219,21 @@ def get_or_create_user_from_claims(claims: dict) -> dict:
                 existing_user["was_just_created"] = False
                 return existing_user
 
-        result = db["Users"].insert_one(_build_new_user_document(claims))
-        user = db["Users"].find_one({"_id": result.inserted_id})
-        if not user:
-            raise ValueError("Failed to create user")
-        user["was_just_created"] = True
-        return user
+        try:
+            result = db["Users"].insert_one(_build_new_user_document(claims))
+            user = db["Users"].find_one({"_id": result.inserted_id})
+            if not user:
+                raise ValueError("Failed to create user")
+            user["was_just_created"] = True
+            return user
+        except DuplicateKeyError:
+            user = db["Users"].find_one({"auth_provider_user_id": auth_provider_user_id})
+            if not user and claims.get("email"):
+                user = db["Users"].find_one({"email": claims["email"].lower().strip()})
+            if not user:
+                raise ValueError("User creation raced with another request, but no user record was found")
+            user["was_just_created"] = False
+            return user
     except PyMongoError as exc:
         raise ServiceUnavailableError(f"MongoDB user operation failed: {exc}") from exc
 

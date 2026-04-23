@@ -217,10 +217,10 @@ async function queueBlockchainEvent(eventData) {
   await state.chain.enqueueTransaction(eventData.event_type, eventData);
 }
 
-async function broadcastBlockchainEvent(eventData) {
+async function broadcastBlockchainEvent(dataType,eventData) {
   await queueBlockchainEvent(eventData);
   gossip({
-    type: "NEW_TX",
+    type: dataType,
     data: eventData,
   });
 }
@@ -290,8 +290,17 @@ function connectSignaling() {
   cleanupRealtime();
   signalingWs = new WebSocket(getWebSocketUrl(state.token));
 
+  signalingWs.onopen = () => {
+    setAuthStatus("Signed in.");
+  };
+
   signalingWs.onmessage = async (event) => {
     const message = JSON.parse(event.data);
+
+    if (message.type === "AUTH_ERROR") {
+      setMessage("Realtime connection was rejected. Please sign out and sign back in.", "error");
+      return;
+    }
 
     if (message.type === "PEERS") {
       state.myId = message.your_id;
@@ -328,8 +337,17 @@ function connectSignaling() {
     }
   };
 
-  signalingWs.onclose = () => {
+  signalingWs.onerror = () => {
+    setAuthStatus("Realtime connection failed.");
+  };
+
+  signalingWs.onclose = (event) => {
     cleanupRealtime();
+    if (event.code === 1008) {
+      setAuthStatus("Realtime connection rejected.");
+      return;
+    }
+
     window.setTimeout(() => {
       if (state.token) {
         connectSignaling();
@@ -347,8 +365,7 @@ async function loadUser() {
   elements.welcomeTitle.textContent = `Welcome back, ${user.name || "trader"}`;
 
   if (user.was_just_created) {
-    await broadcastBlockchainEvent({
-      event_type: "USER_CREATED",
+    await broadcastBlockchainEvent("NEW_USER", {
       user_id: user.id,
       name: user.name || "Auth0 User",
       email: user.email || null,
@@ -506,8 +523,7 @@ async function handleCreateMarket(event) {
       method: "POST",
       body: JSON.stringify(payload),
     });
-    await broadcastBlockchainEvent({
-      event_type: "PREDICTION_CREATED",
+    await broadcastBlockchainEvent("NEW_PREDICTION", {
       prediction_id: prediction.id,
       creator_id: prediction.creator_id,
       bet_string: prediction.bet_string,

@@ -257,13 +257,15 @@ def network_state():
 
 @app.websocket("/connect")
 async def connect(ws: WebSocket, token: str = Query(...)):
+    await ws.accept()
+
     try:
         user_id = get_local_user_id_from_token(token)
     except (ConfigurationError, ServiceUnavailableError, ValueError):
-        await ws.close(code=1008)
+        await ws.send_text(json.dumps({"type": "AUTH_ERROR"}))
+        await ws.close(code=1008, reason="Authentication failed")
         return
 
-    await ws.accept()
     peer_id = str(uuid.uuid4())
     peer = Peer(peer_id, ws)
     peer.user_id = user_id
@@ -295,6 +297,8 @@ async def connect(ws: WebSocket, token: str = Query(...)):
                 await network.peers[target_id].sendText(raw)
     except WebSocketDisconnect:
         pass
+    except Exception:
+        logger.exception("WebSocket connection failed for peer %s", peer_id)
     finally:
         departed_neighbors = network.remove(peer_id)
         for neighbor_id in departed_neighbors:
