@@ -176,9 +176,24 @@ function signal(message) {
   }
 }
 
-function newPeerConnection(peerId) {
+async function newPeerConnection(peerId) {
+
+  // Calling the REST API TO fetch the TURN Server Credentials
+  const response = 
+    await fetch("/webrtc/turn/ice-config", {
+      headers: {
+        Authorization: `Bearer ${state.token}`,
+      },
+    });
+
+  // Saving the response in the iceServers array
+  const turnServers = await response.iceServers();
+
   const pc = new RTCPeerConnection({
-    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" }, 
+      ...turnServers
+    ],
   });
 
   pc.onicecandidate = (event) => {
@@ -365,7 +380,8 @@ async function loadUser() {
   elements.welcomeTitle.textContent = `Welcome back, ${user.name || "trader"}`;
 
   if (user.was_just_created) {
-    await broadcastBlockchainEvent("NEW_USER", {
+    await broadcastBlockchainEvent("NEW_TX", {
+      event_type: "USER_CREATED",
       user_id: user.id,
       name: user.name || "Auth0 User",
       email: user.email || null,
@@ -450,12 +466,27 @@ async function refreshAccessToken() {
     return "";
   }
 
-  const token = await state.auth0.getTokenSilently({
-    authorizationParams: {
-      audience: authConfig.audience,
-      scope: "openid profile email",
-    },
-  });
+  let token = "";
+  try {
+    token = await state.auth0.getTokenSilently({
+      authorizationParams: {
+        audience: authConfig.audience,
+        scope: "openid profile email",
+      },
+    });
+  } catch (error) {
+    // Fall back to an interactive token fetch when silent auth cannot refresh.
+    if (error?.message?.includes("Missing Refresh Token")) {
+      token = await state.auth0.getTokenWithPopup({
+        authorizationParams: {
+          audience: authConfig.audience,
+          scope: "openid profile email",
+        },
+      });
+    } else {
+      throw error;
+    }
+  }
 
   setToken(token);
   return token;
@@ -523,7 +554,8 @@ async function handleCreateMarket(event) {
       method: "POST",
       body: JSON.stringify(payload),
     });
-    await broadcastBlockchainEvent("NEW_PREDICTION", {
+    await broadcastBlockchainEvent("NEW_TX", {
+      event_type: "PREDICTION_CREATED",
       prediction_id: prediction.id,
       creator_id: prediction.creator_id,
       bet_string: prediction.bet_string,
@@ -560,7 +592,7 @@ async function initializeAuth() {
       scope: "openid profile email",
     },
     cacheLocation: "localstorage",
-    useRefreshTokens: true,
+    useRefreshTokens: false,
   });
 
   const search = new URLSearchParams(window.location.search);

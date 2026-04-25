@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import random
 import uuid
 from contextlib import asynccontextmanager
@@ -8,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, requests
 from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -338,6 +339,21 @@ def get_current_user_context(
         raise HTTPException(status_code=503, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=401, detail=str(exc))
+
+@app.get("/webrtc/turn/ice-config")
+async def get_ice_config():
+    turn_credentials_url = os.getenv("TURN_KEY", "").strip()
+    if not turn_credentials_url:
+        raise HTTPException(status_code=500, detail="TURN_KEY not set")
+
+    try:
+        response = requests.get(turn_credentials_url, timeout=5)
+        response.raise_for_status()
+        ice_servers = response.json()
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=503, detail=f"Failed to fetch TURN credentials: {exc}")
+
+    return {"iceServers": ice_servers}
 
 
 @app.get("/auth/reset-password")
