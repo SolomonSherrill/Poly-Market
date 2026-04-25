@@ -7,9 +7,11 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 import numpy as np
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect, requests
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -342,15 +344,17 @@ def get_current_user_context(
 
 @app.get("/webrtc/turn/ice-config")
 async def get_ice_config():
-    turn_credentials_url = os.getenv("TURN_KEY", "").strip()
+    turn_credentials_url = (
+        os.getenv("TURN_CREDENTIALS_URL", "").strip()
+        or os.getenv("TURN_KEY", "").strip()
+    )
     if not turn_credentials_url:
-        raise HTTPException(status_code=500, detail="TURN_KEY not set")
+        raise HTTPException(status_code=500, detail="TURN_CREDENTIALS_URL not set")
 
     try:
-        response = requests.get(turn_credentials_url, timeout=5)
-        response.raise_for_status()
-        ice_servers = response.json()
-    except requests.RequestException as exc:
+        with urllib_request.urlopen(turn_credentials_url, timeout=5) as response:
+            ice_servers = json.loads(response.read().decode("utf-8"))
+    except (urllib_error.URLError, urllib_error.HTTPError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=503, detail=f"Failed to fetch TURN credentials: {exc}")
 
     return {"iceServers": ice_servers}

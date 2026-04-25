@@ -15,6 +15,7 @@ const state = {
   peers: new Map(),
   seen: new Set(),
   chain: new Blockchain(),
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
 const elements = {
@@ -177,23 +178,8 @@ function signal(message) {
 }
 
 async function newPeerConnection(peerId) {
-
-  // Calling the REST API TO fetch the TURN Server Credentials
-  const response = 
-    await fetch("/webrtc/turn/ice-config", {
-      headers: {
-        Authorization: `Bearer ${state.token}`,
-      },
-    });
-
-  // Saving the response in the iceServers array
-  const turnServers = await response.iceServers();
-
   const pc = new RTCPeerConnection({
-    iceServers: [
-      { urls: "stun:stun.l.google.com:19302" }, 
-      ...turnServers
-    ],
+    iceServers: state.iceServers,
   });
 
   pc.onicecandidate = (event) => {
@@ -204,6 +190,15 @@ async function newPeerConnection(peerId) {
 
   state.peers.set(peerId, { pc, dc: null });
   return pc;
+}
+
+async function loadIceServers() {
+  const response = await api("/webrtc/turn/ice-config");
+  const turnServers = Array.isArray(response?.iceServers) ? response.iceServers : [];
+  state.iceServers = [
+    { urls: "stun:stun.l.google.com:19302" },
+    ...turnServers,
+  ];
 }
 
 function handleGossip(message) {
@@ -262,7 +257,7 @@ function setupDataChannel(dc, peerId) {
 }
 
 async function initiateConnection(peerId) {
-  const pc = newPeerConnection(peerId);
+  const pc = await newPeerConnection(peerId);
   const dc = pc.createDataChannel("blockchain");
   setupDataChannel(dc, peerId);
 
@@ -272,7 +267,7 @@ async function initiateConnection(peerId) {
 }
 
 async function answerConnection(peerId, sdp) {
-  const pc = newPeerConnection(peerId);
+  const pc = await newPeerConnection(peerId);
   pc.ondatachannel = (event) => setupDataChannel(event.channel, peerId);
 
   await pc.setRemoteDescription(sdp);
@@ -458,6 +453,7 @@ async function loadMarkets() {
 async function bootAuthenticatedApp() {
   setView("dashboard");
   await Promise.all([loadUser(), loadMarkets()]);
+  await loadIceServers();
   connectSignaling();
 }
 
