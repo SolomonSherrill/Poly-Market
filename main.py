@@ -229,8 +229,8 @@ bearer = HTTPBearer()
 async def index():
     html = Path("static/index.html").read_text()
     html = html.replace(
-        '<script src="/static/app.js"></script>',
-        f'<script src="/static/app.js?v={int(time.time())}"></script>'
+        '<script type="module" src="/static/app.js"></script>',
+        f'<script type="module" src="/static/app.js?v={int(time.time())}"></script>'
     )
     return HTMLResponse(html)
 
