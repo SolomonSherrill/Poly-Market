@@ -17,6 +17,8 @@ const state = {
   chain: new Blockchain(),
   market: new Map(),
   marketCards: new Map(),
+  activeTab: "predictions",
+  selectedPredictionId: null,
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
@@ -35,8 +37,30 @@ const elements = {
   userName: document.getElementById("user-name"),
   userBalance: document.getElementById("user-balance"),
   userEmail: document.getElementById("user-email"),
+  accountUserName: document.getElementById("account-user-name"),
+  accountUserBalance: document.getElementById("account-user-balance"),
+  accountUserEmail: document.getElementById("account-user-email"),
+  marketCount: document.getElementById("market-count"),
   marketsList: document.getElementById("markets-list"),
   marketTemplate: document.getElementById("market-card-template"),
+  tabButtons: document.querySelectorAll("[data-tab]"),
+  tabPanels: document.querySelectorAll("[data-panel]"),
+  marketDetailEmpty: document.getElementById("market-detail-empty"),
+  marketDetail: document.getElementById("market-detail"),
+  detailMarketTag: document.getElementById("detail-market-tag"),
+  detailMarketEnd: document.getElementById("detail-market-end"),
+  detailMarketTitle: document.getElementById("detail-market-title"),
+  detailTotalVolume: document.getElementById("detail-total-volume"),
+  detailYesPercent: document.getElementById("detail-yes-percent"),
+  detailNoPercent: document.getElementById("detail-no-percent"),
+  detailYesBar: document.getElementById("detail-yes-bar"),
+  detailNoBar: document.getElementById("detail-no-bar"),
+  detailYesVolume: document.getElementById("detail-yes-volume"),
+  detailNoVolume: document.getElementById("detail-no-volume"),
+  detailBetForm: document.getElementById("detail-bet-form"),
+  detailStakeInput: document.getElementById("detail-stake-input"),
+  detailYesButton: document.getElementById("detail-yes-button"),
+  detailNoButton: document.getElementById("detail-no-button"),
 };
 
 let signalingWs = null;
@@ -144,6 +168,32 @@ function normalizePrediction(prediction) {
   };
 }
 
+function getPredictionMetrics(prediction) {
+  const normalizedPrediction = normalizePrediction(prediction);
+  const yesAmount = Number(normalizedPrediction.total_yes || 0);
+  const noAmount = Number(normalizedPrediction.total_no || 0);
+  const totalVolume = yesAmount + noAmount;
+
+  if (totalVolume <= 0) {
+    return {
+      totalVolume,
+      yesAmount,
+      noAmount,
+      yesPercent: 50,
+      noPercent: 50,
+    };
+  }
+
+  const yesPercent = Math.round((yesAmount / totalVolume) * 100);
+  return {
+    totalVolume,
+    yesAmount,
+    noAmount,
+    yesPercent,
+    noPercent: 100 - yesPercent,
+  };
+}
+
 async function api(path, options = {}) {
   const headers = {
     "Content-Type": "application/json",
@@ -185,6 +235,20 @@ function setView(view) {
 
   if (showAuth) {
     elements.welcomeTitle.textContent = "Sign in to your account";
+  }
+}
+
+function setActiveTab(tabName) {
+  state.activeTab = tabName;
+
+  for (const button of elements.tabButtons) {
+    const isActive = button.dataset.tab === tabName;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-selected", String(isActive));
+  }
+
+  for (const panel of elements.tabPanels) {
+    panel.classList.toggle("hidden", panel.dataset.panel !== tabName);
   }
 }
 
@@ -243,6 +307,10 @@ function handleGossip(type,data) {
     state.market.set(prediction.id, prediction);
     if (!state.marketCards.has(prediction.id)) {
       renderMarketCard(prediction);
+    }
+    elements.marketCount.textContent = String(state.market.size);
+    if (!state.selectedPredictionId) {
+      selectPrediction(prediction.id);
     }
   } else if (type === "NEW_BLOCK") {
     console.log("New block received:", data);
@@ -404,6 +472,9 @@ async function loadUser() {
   elements.userName.textContent = user.name || "Auth0 User";
   elements.userBalance.textContent = formatMoney(user.balance);
   elements.userEmail.textContent = user.email || "-";
+  elements.accountUserName.textContent = user.name || "Auth0 User";
+  elements.accountUserBalance.textContent = formatMoney(user.balance);
+  elements.accountUserEmail.textContent = user.email || "-";
   elements.welcomeTitle.textContent = `Welcome back, ${user.name || "trader"}`;
 
   if (user.was_just_created) {
@@ -422,56 +493,25 @@ function renderMarketCard(prediction) {
   const predictionId = normalizedPrediction.id;
   const fragment = elements.marketTemplate.content.cloneNode(true);
   const card = fragment.querySelector(".market-card");
+  const cardButton = fragment.querySelector(".market-card-button");
   const marketTag = fragment.querySelector(".market-tag");
   const marketEnd = fragment.querySelector(".market-end");
   const marketTitle = fragment.querySelector(".market-title");
-  const betForm = fragment.querySelector(".bet-form");
-  const yesButton = fragment.querySelector('[data-side="yes"]');
-  const noButton = fragment.querySelector('[data-side="no"]');
-  
+  const marketTotalVolume = fragment.querySelector(".market-total-volume");
+  const yesPercent = fragment.querySelector(".yes-percent");
+  const noPercent = fragment.querySelector(".no-percent");
+
   const isHighLow = normalizedPrediction.bet_type === "high_low";
   marketTag.textContent = isHighLow ? "High / Low" : "Yes / No";
   marketEnd.textContent = `Closes ${formatDate(normalizedPrediction.end_time)}`;
   marketTitle.textContent = normalizedPrediction.bet_string;
-  yesButton.textContent = isHighLow ? "Buy High" : "Buy Yes";
-  noButton.textContent = isHighLow ? "Buy Low" : "Buy No";
+  marketTotalVolume.textContent = formatMoney(0);
+  yesPercent.textContent = "50%";
+  noPercent.textContent = "50%";
   updateMarketCard(normalizedPrediction, card);
 
-  betForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const submitter = event.submitter;
-    const amount = Number(new FormData(betForm).get("amount"));
-    const isYes = submitter?.dataset.side === "yes";
-
-    try {
-      const response = await api("/predictions/back-prediction", {
-        method: "POST",
-        body: JSON.stringify({
-          prediction_id: predictionId,
-          amount,
-          is_yes: isYes,
-          timestamp: Date.now(),
-        }),
-      });
-
-      if (response?.success === false) {
-        throw new Error(response.message || "Order failed.");
-      }
-
-      await broadcastBlockchainEvent("BET_PLACED", {
-        prediction_id: predictionId,
-        amount,
-        is_yes: isYes,
-        user_id: state.user.id,
-        timestamp: Date.now(),
-      });
-      betForm.reset();
-      setMessage(`Order placed on "${normalizedPrediction.bet_string}".`);
-      await loadUser();
-    } catch (error) {
-      setMessage(error.message, "error");
-      await loadMarkets();
-    }
+  cardButton.addEventListener("click", () => {
+    selectPrediction(predictionId);
   });
 
   elements.marketsList.appendChild(card);
@@ -490,19 +530,125 @@ function updateMarketCard(prediction, existingCard = null) {
   const isHighLow = normalizedPrediction.bet_type === "high_low";
   const yesVolume = card.querySelector(".yes-volume");
   const noVolume = card.querySelector(".no-volume");
+  const totalVolume = card.querySelector(".market-total-volume");
+  const yesPercent = card.querySelector(".yes-percent");
+  const noPercent = card.querySelector(".no-percent");
+  const metrics = getPredictionMetrics(normalizedPrediction);
 
-  yesVolume.textContent = `${isHighLow ? "High" : "Yes"}: ${formatMoney(normalizedPrediction.total_yes)}`;
-  noVolume.textContent = `${isHighLow ? "Low" : "No"}: ${formatMoney(normalizedPrediction.total_no)}`;
+  yesVolume.textContent = `${isHighLow ? "High" : "Yes"}: ${formatMoney(metrics.yesAmount)}`;
+  noVolume.textContent = `${isHighLow ? "Low" : "No"}: ${formatMoney(metrics.noAmount)}`;
+  totalVolume.textContent = formatMoney(metrics.totalVolume);
+  yesPercent.textContent = `${metrics.yesPercent}%`;
+  noPercent.textContent = `${metrics.noPercent}%`;
+  card.classList.toggle("active", state.selectedPredictionId === predictionId);
+
+  if (state.selectedPredictionId === predictionId) {
+    renderSelectedPrediction(normalizedPrediction);
+  }
+}
+
+function clearSelectedPrediction() {
+  state.selectedPredictionId = null;
+  elements.marketDetail.classList.add("hidden");
+  elements.marketDetailEmpty.classList.remove("hidden");
+
+  for (const card of state.marketCards.values()) {
+    card.classList.remove("active");
+  }
+}
+
+function renderSelectedPrediction(prediction) {
+  const normalizedPrediction = normalizePrediction(prediction);
+  const metrics = getPredictionMetrics(normalizedPrediction);
+  const isHighLow = normalizedPrediction.bet_type === "high_low";
+
+  elements.marketDetailEmpty.classList.add("hidden");
+  elements.marketDetail.classList.remove("hidden");
+  elements.detailMarketTag.textContent = isHighLow ? "High / Low" : "Yes / No";
+  elements.detailMarketEnd.textContent = `Closes ${formatDate(normalizedPrediction.end_time)}`;
+  elements.detailMarketTitle.textContent = normalizedPrediction.bet_string;
+  elements.detailTotalVolume.textContent = formatMoney(metrics.totalVolume);
+  elements.detailYesPercent.textContent = `${metrics.yesPercent}%`;
+  elements.detailNoPercent.textContent = `${metrics.noPercent}%`;
+  elements.detailYesBar.style.width = `${metrics.yesPercent}%`;
+  elements.detailNoBar.style.width = `${metrics.noPercent}%`;
+  elements.detailYesVolume.textContent = `${isHighLow ? "High" : "Yes"} volume: ${formatMoney(metrics.yesAmount)}`;
+  elements.detailNoVolume.textContent = `${isHighLow ? "Low" : "No"} volume: ${formatMoney(metrics.noAmount)}`;
+  elements.detailYesButton.textContent = isHighLow ? "Buy High" : "Buy Yes";
+  elements.detailNoButton.textContent = isHighLow ? "Buy Low" : "Buy No";
+}
+
+function selectPrediction(predictionId) {
+  const prediction = state.market.get(predictionId);
+  if (!prediction) {
+    clearSelectedPrediction();
+    return;
+  }
+
+  state.selectedPredictionId = predictionId;
+
+  for (const [id, card] of state.marketCards) {
+    card.classList.toggle("active", id === predictionId);
+  }
+
+  renderSelectedPrediction(prediction);
+}
+
+async function handlePlaceBet(event) {
+  event.preventDefault();
+  const predictionId = state.selectedPredictionId;
+  const prediction = state.market.get(predictionId);
+  if (!prediction) {
+    setMessage("Select a prediction before placing a trade.", "error");
+    return;
+  }
+
+  const submitter = event.submitter;
+  const amount = Number(new FormData(elements.detailBetForm).get("amount"));
+  const isYes = submitter?.dataset.side === "yes";
+
+  try {
+    const response = await api("/predictions/back-prediction", {
+      method: "POST",
+      body: JSON.stringify({
+        prediction_id: predictionId,
+        amount,
+        is_yes: isYes,
+        timestamp: Date.now(),
+      }),
+    });
+
+    if (response?.success === false) {
+      throw new Error(response.message || "Order failed.");
+    }
+
+    await broadcastBlockchainEvent("BET_PLACED", {
+      prediction_id: predictionId,
+      amount,
+      is_yes: isYes,
+      user_id: state.user.id,
+      timestamp: Date.now(),
+    });
+    elements.detailBetForm.reset();
+    setMessage(`Order placed on "${prediction.bet_string}".`);
+    await loadUser();
+  } catch (error) {
+    setMessage(error.message, "error");
+    await loadMarkets();
+  }
 }
 
 async function loadMarkets() {
+  const previousSelection = state.selectedPredictionId;
   elements.marketsList.innerHTML = "";
   state.market.clear();
   state.marketCards.clear();
   const predictions = await api("/predictions/get-all-predictions");
+  elements.marketCount.textContent = String(predictions.length);
 
   if (!predictions.length) {
-    elements.marketsList.innerHTML = '<article class="panel">No active markets yet. Post the first one above.</article>';
+    elements.marketsList.innerHTML = '<article class="panel">No active markets yet. Post the first one in the Create tab.</article>';
+    clearSelectedPrediction();
     return;
   }
 
@@ -511,6 +657,13 @@ async function loadMarkets() {
     state.market.set(normalizedPrediction.id, normalizedPrediction);
     renderMarketCard(normalizedPrediction);
   }
+
+  if (previousSelection && state.market.has(previousSelection)) {
+    selectPrediction(previousSelection);
+    return;
+  }
+
+  selectPrediction(normalizePrediction(predictions[0]).id);
 }
 
 function setupPredictionTypeToggles() {
@@ -555,6 +708,7 @@ async function buildPredictionId(userId, betString) {
 
 async function bootAuthenticatedApp() {
   setView("dashboard");
+  setActiveTab(state.activeTab);
   await Promise.all([loadUser(), loadMarkets()]);
   await loadIceServers();
   connectSignaling();
@@ -666,6 +820,7 @@ async function handleCreateMarket(event) {
     });
     elements.createMarketForm.reset();
     setMessage("Prediction posted.");
+    setActiveTab("predictions");
   } catch (error) {
     setMessage(error.message, "error");
     await loadMarkets();
@@ -720,6 +875,11 @@ async function initializeAuth() {
 
 function attachEvents() {
   setupPredictionTypeToggles();
+  for (const button of elements.tabButtons) {
+    button.addEventListener("click", () => {
+      setActiveTab(button.dataset.tab);
+    });
+  }
   elements.loginButton.addEventListener("click", () => {
     setAuthStatus("Redirecting to Auth0 sign in...");
     login().catch((error) => {
@@ -748,10 +908,12 @@ function attachEvents() {
     }
   });
   elements.createMarketForm.addEventListener("submit", handleCreateMarket);
+  elements.detailBetForm.addEventListener("submit", handlePlaceBet);
 }
 
 async function initializeApp() {
   attachEvents();
+  setActiveTab(state.activeTab);
   setView("auth");
   setAuthStatus("Preparing login...");
 

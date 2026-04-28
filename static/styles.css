@@ -167,6 +167,12 @@ h1 {
   gap: 22px;
 }
 
+.dashboard-shell,
+.tab-panel {
+  display: grid;
+  gap: 22px;
+}
+
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -324,6 +330,44 @@ h1 {
   min-height: 100%;
 }
 
+.dashboard-overview {
+  display: grid;
+  gap: 18px;
+  background:
+    linear-gradient(180deg, rgba(17, 75, 255, 0.12), rgba(255, 255, 255, 0.96)),
+    white;
+}
+
+.overview-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.overview-stat,
+.detail-stat-card {
+  padding: 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(17, 75, 255, 0.12);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.overview-stat span,
+.detail-stat-card span,
+.highlight-label {
+  display: block;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.overview-stat strong,
+.detail-stat-card strong {
+  font-size: 1.1rem;
+}
+
 .profile-metrics {
   display: grid;
   gap: 16px;
@@ -376,20 +420,49 @@ h1 {
   margin-bottom: 8px;
 }
 
-.markets-list {
+.predictions-layout {
   display: grid;
-  gap: 16px;
+  grid-template-columns: minmax(0, 1.5fr) minmax(320px, 420px);
+  gap: 22px;
+  align-items: start;
+}
+
+.markets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 18px;
 }
 
 .market-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
-  gap: 20px;
-  padding: 22px;
+  min-height: 100%;
+}
+
+.market-card-button {
+  width: 100%;
+  text-align: left;
+  display: block;
+  padding: 0;
+  color: inherit;
   background: var(--panel-strong);
   border: 1px solid var(--line);
   border-radius: 26px;
   box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.market-card-button:hover {
+  transform: translateY(-2px);
+}
+
+.market-card.active .market-card-button {
+  border-color: rgba(17, 75, 255, 0.35);
+  box-shadow: 0 18px 40px rgba(17, 75, 255, 0.18);
+}
+
+.market-copy {
+  display: grid;
+  gap: 16px;
+  padding: 22px;
 }
 
 .market-meta,
@@ -414,14 +487,98 @@ h1 {
 }
 
 .market-title {
-  margin: 14px 0;
   font-size: 1.35rem;
   line-height: 1.2;
+}
+
+.market-highlights {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.market-highlight {
+  padding: 14px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(17, 75, 255, 0.08), rgba(220, 231, 255, 0.35));
+  border: 1px solid rgba(17, 75, 255, 0.08);
+}
+
+.market-highlight strong {
+  font-size: 1rem;
 }
 
 .bet-form {
   display: grid;
   gap: 14px;
+}
+
+.market-detail-panel {
+  position: sticky;
+  top: 34px;
+  display: grid;
+  gap: 20px;
+}
+
+.market-detail-empty,
+.market-detail {
+  display: grid;
+  gap: 18px;
+}
+
+.market-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.detail-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.probability-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.probability-bar {
+  display: flex;
+  width: 100%;
+  height: 16px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dfe8fb;
+}
+
+.probability-fill {
+  display: block;
+  height: 100%;
+}
+
+.yes-fill {
+  background: linear-gradient(135deg, #1260ff, #4f8eff);
+}
+
+.no-fill {
+  background: linear-gradient(135deg, #072554, #0c3da1);
+}
+
+.probability-labels {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.detail-bet-form {
+  padding-top: 6px;
+}
+
+.account-grid {
+  align-items: start;
 }
 
 .bet-button {
@@ -442,12 +599,16 @@ h1 {
   .shell,
   .auth-layout,
   .dashboard-grid,
-  .market-card {
+  .predictions-layout {
     grid-template-columns: 1fr;
   }
 
   .hero-panel {
     min-height: auto;
+  }
+
+  .market-detail-panel {
+    position: static;
   }
 }
 
@@ -463,6 +624,16 @@ h1 {
   }
 
   .inline-form {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-metrics,
+  .detail-stats,
+  .market-highlights {
+    grid-template-columns: 1fr;
+  }
+
+  .tabs {
     grid-template-columns: 1fr;
   }
 }

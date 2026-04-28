@@ -92,59 +92,164 @@
       </section>
 
       <section id="dashboard-view" class="dashboard hidden">
-        <div class="dashboard-grid">
-          <article class="panel profile-card">
-            <p class="panel-kicker">Account</p>
-            <h3 id="user-name">Loading...</h3>
-            <div class="profile-metrics">
-              <div>
+        <section class="dashboard-shell">
+          <article class="panel dashboard-overview">
+            <div class="section-heading">
+              <p class="panel-kicker">Account snapshot</p>
+              <h3 id="user-name">Loading...</h3>
+            </div>
+            <div class="overview-metrics">
+              <div class="overview-stat">
                 <span>Balance</span>
                 <strong id="user-balance">$0.00</strong>
               </div>
-              <div>
+              <div class="overview-stat">
                 <span>Email</span>
                 <strong id="user-email">-</strong>
               </div>
-            </div>
-          </article>
-
-          <article class="panel create-market-card">
-            <div class="section-heading">
-              <p class="panel-kicker">Create market</p>
-              <h3>Post a new prediction</h3>
-            </div>
-            <form id="create-market-form" class="stack">
-              <label class="field">
-                <span>Question</span>
-                <input name="bet_string" type="text" placeholder="Will Team A win on Friday?" required>
-              </label>
-              <div class="toggle-row">
-                <label class="toggle-pill">
-                  <input name="is_yes_no" type="checkbox" checked>
-                  <span>Yes / No</span>
-                </label>
-                <label class="toggle-pill">
-                  <input name="is_high_low" type="checkbox">
-                  <span>High / Low</span>
-                </label>
+              <div class="overview-stat">
+                <span>Open markets</span>
+                <strong id="market-count">0</strong>
               </div>
-              <label class="field">
-                <span>Ends at</span>
-                <input name="end_time" type="datetime-local" required>
-              </label>
-              <button class="primary-button" type="submit">Post prediction</button>
-            </form>
-          </article>
-        </div>
-
-        <section class="markets-section">
-          <div class="section-heading market-heading">
-            <div>
-              <p class="panel-kicker">Open markets</p>
-              <h3>Trade active predictions</h3>
             </div>
+          </article>
+
+          <div class="tabs" role="tablist" aria-label="Dashboard sections">
+            <button id="tab-predictions" class="tab active" type="button" data-tab="predictions" role="tab" aria-selected="true">Predictions</button>
+            <button id="tab-create" class="tab" type="button" data-tab="create" role="tab" aria-selected="false">Create</button>
+            <button id="tab-account" class="tab" type="button" data-tab="account" role="tab" aria-selected="false">Account</button>
           </div>
-          <div id="markets-list" class="markets-list"></div>
+
+          <section id="panel-predictions" class="tab-panel" data-panel="predictions" role="tabpanel">
+            <div class="predictions-layout">
+              <section class="markets-section">
+                <div class="section-heading market-heading">
+                  <div>
+                    <p class="panel-kicker">Open markets</p>
+                    <h3>Browse live prediction cards</h3>
+                  </div>
+                </div>
+                <div id="markets-list" class="markets-grid"></div>
+              </section>
+
+              <aside class="panel market-detail-panel">
+                <div id="market-detail-empty" class="market-detail-empty">
+                  <p class="panel-kicker">Select a market</p>
+                  <h3>Choose a prediction card to inspect pricing and place a trade.</h3>
+                </div>
+
+                <div id="market-detail" class="market-detail hidden">
+                  <div class="section-heading">
+                    <div class="market-detail-meta">
+                      <span id="detail-market-tag" class="market-tag"></span>
+                      <span id="detail-market-end" class="market-end"></span>
+                    </div>
+                    <h3 id="detail-market-title"></h3>
+                  </div>
+
+                  <div class="detail-stats">
+                    <article class="detail-stat-card">
+                      <span>Total volume</span>
+                      <strong id="detail-total-volume">$0.00</strong>
+                    </article>
+                    <article class="detail-stat-card">
+                      <span>Yes chance</span>
+                      <strong id="detail-yes-percent">50%</strong>
+                    </article>
+                    <article class="detail-stat-card">
+                      <span>No chance</span>
+                      <strong id="detail-no-percent">50%</strong>
+                    </article>
+                  </div>
+
+                  <div class="probability-panel">
+                    <div class="probability-bar" aria-hidden="true">
+                      <span id="detail-yes-bar" class="probability-fill yes-fill"></span>
+                      <span id="detail-no-bar" class="probability-fill no-fill"></span>
+                    </div>
+                    <div class="probability-labels">
+                      <span id="detail-yes-volume"></span>
+                      <span id="detail-no-volume"></span>
+                    </div>
+                  </div>
+
+                  <form id="detail-bet-form" class="bet-form detail-bet-form">
+                    <label class="field">
+                      <span>Stake</span>
+                      <input id="detail-stake-input" class="stake-input" name="amount" type="number" min="1" step="0.01" placeholder="25.00" required>
+                    </label>
+                    <div class="bet-actions">
+                      <button id="detail-yes-button" class="bet-button yes-button" data-side="yes" type="submit">Buy Yes</button>
+                      <button id="detail-no-button" class="bet-button no-button" data-side="no" type="submit">Buy No</button>
+                    </div>
+                  </form>
+                </div>
+              </aside>
+            </div>
+          </section>
+
+          <section id="panel-create" class="tab-panel hidden" data-panel="create" role="tabpanel">
+            <article class="panel create-market-card">
+              <div class="section-heading">
+                <p class="panel-kicker">Create market</p>
+                <h3>Post a new prediction</h3>
+              </div>
+              <form id="create-market-form" class="stack">
+                <label class="field">
+                  <span>Question</span>
+                  <input name="bet_string" type="text" placeholder="Will Team A win on Friday?" required>
+                </label>
+                <div class="toggle-row">
+                  <label class="toggle-pill">
+                    <input name="is_yes_no" type="checkbox" checked>
+                    <span>Yes / No</span>
+                  </label>
+                  <label class="toggle-pill">
+                    <input name="is_high_low" type="checkbox">
+                    <span>High / Low</span>
+                  </label>
+                </div>
+                <label class="field">
+                  <span>Ends at</span>
+                  <input name="end_time" type="datetime-local" required>
+                </label>
+                <button class="primary-button" type="submit">Post prediction</button>
+              </form>
+            </article>
+          </section>
+
+          <section id="panel-account" class="tab-panel hidden" data-panel="account" role="tabpanel">
+            <div class="dashboard-grid account-grid">
+              <article class="panel profile-card">
+                <p class="panel-kicker">Account</p>
+                <h3 id="account-user-name">Loading...</h3>
+                <div class="profile-metrics">
+                  <div>
+                    <span>Balance</span>
+                    <strong id="account-user-balance">$0.00</strong>
+                  </div>
+                  <div>
+                    <span>Email</span>
+                    <strong id="account-user-email">-</strong>
+                  </div>
+                </div>
+              </article>
+
+              <article class="panel panel-accent">
+                <p class="panel-kicker">How pricing works</p>
+                <div class="stack">
+                  <p class="auth-copy">
+                    Outcome percentages are derived from current money on each side of the market.
+                    As capital shifts between outcomes, the displayed probability moves with it.
+                  </p>
+                  <p class="auth-copy">
+                    Use the Predictions tab to compare markets quickly, then open a market in the
+                    detail panel to place a trade with the existing yes/no or high/low flow.
+                  </p>
+                </div>
+              </article>
+            </div>
+          </section>
         </section>
       </section>
     </main>
@@ -152,27 +257,33 @@
 
   <template id="market-card-template">
     <article class="market-card">
-      <div class="market-copy">
-        <div class="market-meta">
-          <span class="market-tag"></span>
-          <span class="market-end"></span>
+      <button class="market-card-button" type="button">
+        <div class="market-copy">
+          <div class="market-meta">
+            <span class="market-tag"></span>
+            <span class="market-end"></span>
+          </div>
+          <h4 class="market-title"></h4>
+          <div class="market-highlights">
+            <div class="market-highlight">
+              <span class="highlight-label">Volume</span>
+              <strong class="market-total-volume"></strong>
+            </div>
+            <div class="market-highlight">
+              <span class="highlight-label">Yes chance</span>
+              <strong class="yes-percent"></strong>
+            </div>
+            <div class="market-highlight">
+              <span class="highlight-label">No chance</span>
+              <strong class="no-percent"></strong>
+            </div>
+          </div>
+          <div class="market-volume">
+            <span class="yes-volume"></span>
+            <span class="no-volume"></span>
+          </div>
         </div>
-        <h4 class="market-title"></h4>
-        <div class="market-volume">
-          <span class="yes-volume"></span>
-          <span class="no-volume"></span>
-        </div>
-      </div>
-      <form class="bet-form">
-        <label class="field">
-          <span>Stake</span>
-          <input class="stake-input" name="amount" type="number" min="1" step="0.01" placeholder="25.00" required>
-        </label>
-        <div class="bet-actions">
-          <button class="bet-button yes-button" data-side="yes" type="submit">Buy Yes</button>
-          <button class="bet-button no-button" data-side="no" type="submit">Buy No</button>
-        </div>
-      </form>
+      </button>
     </article>
   </template>
 
