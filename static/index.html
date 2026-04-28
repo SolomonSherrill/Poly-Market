@@ -121,7 +121,7 @@
           </div>
 
           <section id="panel-predictions" class="tab-panel" data-panel="predictions" role="tabpanel">
-            <div class="predictions-layout">
+            <div id="predictions-browse-view" class="predictions-browse-view">
               <section class="markets-section">
                 <div class="section-heading market-heading">
                   <div>
@@ -129,66 +129,221 @@
                     <h3>Browse live prediction cards</h3>
                   </div>
                 </div>
+                <div class="market-controls panel">
+                  <label class="field market-search-field">
+                    <span>Search predictions</span>
+                    <input id="market-search" type="search" placeholder="Search by question text">
+                  </label>
+                  <div class="control-row">
+                    <label class="field select-field">
+                      <span>Filter</span>
+                      <select id="market-filter">
+                        <option value="all">All markets</option>
+                        <option value="yes_no">Yes / No</option>
+                        <option value="high_low">High / Low</option>
+                        <option value="zero_volume">No trades yet</option>
+                      </select>
+                    </label>
+                    <label class="field select-field">
+                      <span>Sort</span>
+                      <select id="market-sort">
+                        <option value="volume">Highest volume</option>
+                        <option value="closing">Closing soon</option>
+                        <option value="newest">Newest listed</option>
+                        <option value="alphabetical">Question A-Z</option>
+                      </select>
+                    </label>
+                  </div>
+                </div>
+                <div id="markets-empty" class="panel empty-state hidden">
+                  <p class="panel-kicker">No matches</p>
+                  <h3>No predictions match the current search and filter settings.</h3>
+                  <p class="auth-copy">Try a different keyword, broaden the market type filter, or switch the sort order.</p>
+                </div>
                 <div id="markets-list" class="markets-grid"></div>
               </section>
-
-              <aside class="panel market-detail-panel">
-                <div id="market-detail-empty" class="market-detail-empty">
-                  <p class="panel-kicker">Select a market</p>
-                  <h3>Choose a prediction card to inspect pricing and place a trade.</h3>
-                </div>
-
-                <div id="market-detail" class="market-detail hidden">
-                  <div class="section-heading">
-                    <div class="market-detail-meta">
-                      <span id="detail-market-tag" class="market-tag"></span>
-                      <span id="detail-market-end" class="market-end"></span>
-                    </div>
-                    <h3 id="detail-market-title"></h3>
-                  </div>
-
-                  <div class="detail-stats">
-                    <article class="detail-stat-card">
-                      <span>Total volume</span>
-                      <strong id="detail-total-volume">$0.00</strong>
-                    </article>
-                    <article class="detail-stat-card">
-                      <span>Yes chance</span>
-                      <strong id="detail-yes-percent">50%</strong>
-                    </article>
-                    <article class="detail-stat-card">
-                      <span>No chance</span>
-                      <strong id="detail-no-percent">50%</strong>
-                    </article>
-                  </div>
-
-                  <div class="probability-panel">
-                    <div class="probability-bar" aria-hidden="true">
-                      <span id="detail-yes-bar" class="probability-fill yes-fill"></span>
-                      <span id="detail-no-bar" class="probability-fill no-fill"></span>
-                    </div>
-                    <div class="probability-labels">
-                      <span id="detail-yes-volume"></span>
-                      <span id="detail-no-volume"></span>
-                    </div>
-                  </div>
-
-                  <form id="detail-bet-form" class="bet-form detail-bet-form">
-                    <label class="field">
-                      <span>Stake</span>
-                      <input id="detail-stake-input" class="stake-input" name="amount" type="number" min="1" step="0.01" placeholder="25.00" required>
-                    </label>
-                    <div class="bet-actions">
-                      <button id="detail-yes-button" class="bet-button yes-button" data-side="yes" type="submit">Buy Yes</button>
-                      <button id="detail-no-button" class="bet-button no-button" data-side="no" type="submit">Buy No</button>
-                    </div>
-                  </form>
-                </div>
-              </aside>
             </div>
-          </section>
 
-          <section id="panel-create" class="tab-panel hidden" data-panel="create" role="tabpanel">
+            <div id="prediction-detail-view" class="prediction-detail-view hidden">
+              <div class="detail-page-shell">
+                <div class="detail-page-header panel">
+                  <button id="back-to-markets" class="ghost-button" type="button">Back to markets</button>
+                  <div class="section-heading">
+                    <p class="panel-kicker">Prediction detail</p>
+                    <h3>View one market in depth and place a trade</h3>
+                  </div>
+                </div>
+
+                <div id="prediction-detail-missing" class="panel empty-state hidden">
+                  <p class="panel-kicker">Prediction unavailable</p>
+                  <h3>That prediction could not be found in the active market list.</h3>
+                  <p class="auth-copy">Return to the markets browser to choose another prediction.</p>
+                </div>
+
+                <div id="market-detail" class="prediction-detail-layout hidden">
+                  <section class="panel market-detail-main">
+	                    <div class="section-heading">
+	                      <div class="market-detail-meta">
+	                        <span id="detail-market-tag" class="market-tag"></span>
+	                        <span id="detail-market-end" class="market-end"></span>
+	                      </div>
+	                      <h3 id="detail-market-title"></h3>
+	                      <div class="market-creator-row detail-creator-row">
+	                        <span class="creator-label">Created by</span>
+	                        <button id="detail-creator-link" class="creator-link" type="button"></button>
+	                      </div>
+	                    </div>
+
+                    <div class="detail-stats">
+                      <article class="detail-stat-card">
+                        <span>Total volume</span>
+                        <strong id="detail-total-volume">$0.00</strong>
+                      </article>
+                      <article class="detail-stat-card">
+                        <span id="detail-yes-label">Yes chance</span>
+                        <strong id="detail-yes-percent">50%</strong>
+                      </article>
+                      <article class="detail-stat-card">
+                        <span id="detail-no-label">No chance</span>
+                        <strong id="detail-no-percent">50%</strong>
+                      </article>
+                    </div>
+
+                    <div class="probability-panel">
+                      <div class="probability-bar" aria-hidden="true">
+                        <span id="detail-yes-bar" class="probability-fill yes-fill"></span>
+                        <span id="detail-no-bar" class="probability-fill no-fill"></span>
+                      </div>
+                      <p id="detail-probability-summary" class="probability-summary"></p>
+                      <div class="probability-labels">
+                        <span id="detail-yes-volume"></span>
+                        <span id="detail-no-volume"></span>
+                      </div>
+                    </div>
+
+                    <div class="chart-panel">
+                      <div class="chart-header">
+                        <div>
+                          <p class="panel-kicker">Price history</p>
+                          <h4>Observed blockchain pricing</h4>
+                        </div>
+                        <span id="detail-chart-caption" class="chart-caption">Waiting for local blockchain trades</span>
+                      </div>
+                    <div id="detail-chart-empty" class="chart-empty">
+                      <p>No local price points yet for this prediction id.</p>
+                    </div>
+                    <div id="detail-chart-frame" class="chart-frame hidden">
+                      <svg id="detail-price-chart" class="price-chart" viewBox="0 0 320 220" preserveAspectRatio="none" aria-label="Prediction price history">
+                        <defs>
+                          <linearGradient id="yes-area-gradient" x1="0" x2="0" y1="0" y2="1">
+                            <stop offset="0%" stop-color="#1260ff" stop-opacity="0.28"></stop>
+                            <stop offset="100%" stop-color="#1260ff" stop-opacity="0.04"></stop>
+                          </linearGradient>
+                        </defs>
+                        <g id="detail-chart-grid"></g>
+                        <g id="detail-chart-y-axis"></g>
+                        <g id="detail-chart-x-axis"></g>
+                        <path id="detail-chart-area" class="chart-area"></path>
+                        <path id="detail-chart-line" class="chart-line"></path>
+                        <line id="detail-chart-hover-line" class="chart-hover-line hidden"></line>
+                        <circle id="detail-chart-hover-dot" class="chart-hover-dot hidden" r="5"></circle>
+                        <rect id="detail-chart-overlay" class="chart-overlay" x="0" y="0" width="320" height="220"></rect>
+                      </svg>
+                      <div id="detail-chart-tooltip" class="chart-tooltip hidden" aria-live="polite">
+                        <p id="detail-chart-tooltip-time" class="chart-tooltip-time"></p>
+                        <p id="detail-chart-tooltip-price" class="chart-tooltip-metric"></p>
+                        <p id="detail-chart-tooltip-volume" class="chart-tooltip-metric"></p>
+                      </div>
+                    </div>
+                  </div>
+                  </section>
+
+                  <aside class="panel detail-trade-panel">
+                    <div class="section-heading">
+                      <p class="panel-kicker">Place trade</p>
+                      <h3>Submit from the dedicated market page</h3>
+                    </div>
+                    <form id="detail-bet-form" class="bet-form detail-bet-form">
+                      <label class="field">
+                        <span>Stake</span>
+                        <input id="detail-stake-input" class="stake-input" name="amount" type="number" min="1" step="0.01" placeholder="25.00" required>
+                      </label>
+                      <div class="bet-actions">
+                        <button id="detail-yes-button" class="bet-button yes-button" data-side="yes" type="submit">Buy Yes</button>
+                        <button id="detail-no-button" class="bet-button no-button" data-side="no" type="submit">Buy No</button>
+                      </div>
+                    </form>
+                  </aside>
+                </div>
+              </div>
+	            </div>
+	          </section>
+
+	          <section id="panel-profiles" class="tab-panel hidden" data-panel="profiles" role="tabpanel">
+	            <div id="profile-view" class="profile-view hidden">
+	              <div class="detail-page-shell">
+	                <div class="detail-page-header panel">
+	                  <button id="back-to-predictions" class="ghost-button" type="button">Back to predictions</button>
+	                  <div class="section-heading">
+	                    <p class="panel-kicker">User profile</p>
+	                    <h3>View account stats and created predictions</h3>
+	                  </div>
+	                </div>
+
+	                <div id="profile-missing" class="panel empty-state hidden">
+	                  <p class="panel-kicker">Profile unavailable</p>
+	                  <h3>That user profile could not be loaded.</h3>
+	                  <p class="auth-copy">Return to predictions and choose another profile.</p>
+	                </div>
+
+	                <div id="profile-content" class="profile-layout hidden">
+	                  <section class="panel profile-hero-card">
+	                    <div class="profile-hero">
+	                      <img id="profile-picture" class="profile-avatar" alt="User profile picture">
+	                      <div class="profile-hero-copy">
+	                        <p class="panel-kicker">Trader</p>
+	                        <h3 id="profile-name">Unknown user</h3>
+	                        <p id="profile-email" class="auth-copy">-</p>
+	                        <p id="profile-created-at" class="profile-created-at"></p>
+	                      </div>
+	                    </div>
+
+	                    <div class="profile-stat-grid">
+	                      <article class="detail-stat-card">
+	                        <span>Balance</span>
+	                        <strong id="profile-balance">$0.00</strong>
+	                      </article>
+	                      <article class="detail-stat-card">
+	                        <span>Total wins</span>
+	                        <strong id="profile-total-wins">0</strong>
+	                      </article>
+	                      <article class="detail-stat-card">
+	                        <span>Total losses</span>
+	                        <strong id="profile-total-losses">0</strong>
+	                      </article>
+	                      <article class="detail-stat-card">
+	                        <span>Net profit</span>
+	                        <strong id="profile-net-profit">$0.00</strong>
+	                      </article>
+	                    </div>
+	                  </section>
+
+	                  <section class="panel">
+	                    <div class="section-heading">
+	                      <p class="panel-kicker">Created predictions</p>
+	                      <h3>Newest markets first</h3>
+	                    </div>
+	                    <div id="profile-predictions-empty" class="chart-empty hidden">
+	                      <p>This user has not created any predictions yet.</p>
+	                    </div>
+	                    <div id="profile-predictions-list" class="profile-predictions-list"></div>
+	                  </section>
+	                </div>
+	              </div>
+	            </div>
+	          </section>
+
+	          <section id="panel-create" class="tab-panel hidden" data-panel="create" role="tabpanel">
             <article class="panel create-market-card">
               <div class="section-heading">
                 <p class="panel-kicker">Create market</p>
@@ -242,10 +397,10 @@
                     Outcome percentages are derived from current money on each side of the market.
                     As capital shifts between outcomes, the displayed probability moves with it.
                   </p>
-                  <p class="auth-copy">
-                    Use the Predictions tab to compare markets quickly, then open a market in the
-                    detail panel to place a trade with the existing yes/no or high/low flow.
-                  </p>
+	                  <p class="auth-copy">
+	                    Use the Predictions tab to compare markets quickly, then open a dedicated
+	                    market page to place a trade with the existing yes/no or high/low flow.
+	                  </p>
                 </div>
               </article>
             </div>
@@ -255,10 +410,10 @@
     </main>
   </div>
 
-  <template id="market-card-template">
-    <article class="market-card">
-      <button class="market-card-button" type="button">
-        <div class="market-copy">
+	  <template id="market-card-template">
+	    <article class="market-card">
+	      <div class="market-card-button" role="button" tabindex="0">
+	        <div class="market-copy">
           <div class="market-meta">
             <span class="market-tag"></span>
             <span class="market-end"></span>
@@ -270,22 +425,33 @@
               <strong class="market-total-volume"></strong>
             </div>
             <div class="market-highlight">
-              <span class="highlight-label">Yes chance</span>
+              <span class="highlight-label outcome-a-label">Yes chance</span>
               <strong class="yes-percent"></strong>
             </div>
             <div class="market-highlight">
-              <span class="highlight-label">No chance</span>
+              <span class="highlight-label outcome-b-label">No chance</span>
               <strong class="no-percent"></strong>
             </div>
           </div>
-          <div class="market-volume">
-            <span class="yes-volume"></span>
-            <span class="no-volume"></span>
-          </div>
-        </div>
-      </button>
-    </article>
-  </template>
+	          <div class="card-probability-panel">
+	            <div class="probability-bar card-probability-bar" aria-hidden="true">
+	              <span class="probability-fill yes-fill card-yes-bar"></span>
+	              <span class="probability-fill no-fill card-no-bar"></span>
+	            </div>
+	            <p class="market-probability-summary"></p>
+	          </div>
+	          <div class="market-creator-row">
+	            <span class="creator-label">Created by</span>
+	            <button class="creator-link" type="button"></button>
+	          </div>
+	          <div class="market-volume">
+	            <span class="yes-volume"></span>
+	            <span class="no-volume"></span>
+	          </div>
+	        </div>
+	      </div>
+	    </article>
+	  </template>
 
   <script type="module" src="/static/app.js"></script>
 </body>

@@ -28,7 +28,13 @@ from Accounts import (
     get_local_user_id_from_token,
     get_user,
 )
-from Prediction import back_prediction, create_prediction, get_all_predictions, get_prediction
+from Prediction import (
+    back_prediction,
+    create_prediction,
+    get_all_predictions,
+    get_prediction,
+    get_predictions_by_creator,
+)
 
 logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
@@ -372,6 +378,26 @@ async def me(user_context: dict = Depends(get_current_user_context)):
         user = get_user(user_context["user_id"])
         user["was_just_created"] = user_context["was_just_created"]
         return user
+    except (ConfigurationError, ServiceUnavailableError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.get("/users/{user_id}")
+async def get_user_route(user_id: str, current_user_id: str = Depends(get_current_user)):
+    try:
+        return get_user(user_id)
+    except (ConfigurationError, ServiceUnavailableError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.get("/users/{user_id}/predictions")
+async def get_user_predictions_route(user_id: str, current_user_id: str = Depends(get_current_user)):
+    try:
+        return get_predictions_by_creator(user_id)
     except (ConfigurationError, ServiceUnavailableError) as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except ValueError as exc:

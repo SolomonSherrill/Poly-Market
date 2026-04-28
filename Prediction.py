@@ -91,6 +91,21 @@ def get_prediction(prediction_id: str):
     return prediction
 
 
+def get_predictions_by_creator(creator_id: str):
+    db = get_db()
+    try:
+        prediction_list = db["Predictions"].find({"creator_id": creator_id}).sort("created_at", -1)
+        predictions = []
+        for prediction in prediction_list:
+            prediction["_id"] = prediction.get("id", str(prediction["_id"]))
+            prediction["id"] = prediction["_id"]
+            prediction["creator_id"] = str(prediction["creator_id"])
+            predictions.append(prediction)
+        return predictions
+    except PyMongoError as exc:
+        raise ServiceUnavailableError(f"MongoDB creator prediction query failed: {exc}") from exc
+
+
 def back_prediction(prediction_id: str, user_id: str, amount: float, is_yes: bool):
     db = get_db()
     try:
