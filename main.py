@@ -311,6 +311,7 @@ async def connect(ws: WebSocket, token: str = Query(...)):
 
 
 class CreatePredictionRequest(BaseModel):
+    prediction_id: str
     bet_string: str
     is_high_low: bool = False
     is_yes_no: bool = False
@@ -384,7 +385,14 @@ async def post_prediction(
     user_id: str = Depends(get_current_user),
 ):
     try:
-        return create_prediction(user_id, body.bet_string, body.is_high_low, body.is_yes_no, body.end_time)
+        return create_prediction(
+            body.prediction_id,
+            user_id,
+            body.bet_string,
+            body.is_high_low,
+            body.is_yes_no,
+            body.end_time,
+        )
     except (ConfigurationError, ServiceUnavailableError) as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except ValueError as exc:

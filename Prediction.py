@@ -15,11 +15,22 @@ def _as_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
-def create_prediction(creator_id: str, bet_string: str, is_high_low: bool, is_yes_no: bool, end_time: datetime):
+def create_prediction(
+    prediction_id: str,
+    creator_id: str,
+    bet_string: str,
+    is_high_low: bool,
+    is_yes_no: bool,
+    end_time: datetime,
+):
     db = get_db()
-    bet_type = "high_low" if is_high_low else "yes_no" if is_yes_no else "other"
+    if not prediction_id or not prediction_id.strip():
+        raise ValueError("Prediction id is required")
+
+    bet_type = "highLow" if is_high_low else "yesNo" if is_yes_no else "other"
     prediction = {
-        "creator_id": ObjectId(creator_id),
+        "id": prediction_id.strip(),
+        "creator_id": creator_id,
         "bet_string": bet_string,
         "bet_type": bet_type,
         "end_time": end_time,
@@ -30,9 +41,9 @@ def create_prediction(creator_id: str, bet_string: str, is_high_low: bool, is_ye
         "total_no": 0,
     }
     try:
-        result = db["Predictions"].insert_one(prediction)
+        db["Predictions"].insert_one(prediction)
         return {
-            "id": str(result.inserted_id),
+            "id": prediction["id"],
             "creator_id": creator_id,
             "bet_string": bet_string,
             "bet_type": bet_type,
@@ -49,7 +60,8 @@ def get_all_predictions():
         prediction_list = db["Predictions"].find({"resolved": False, "end_time": {"$gt": datetime.now(timezone.utc)}})
         predictions = []
         for prediction in prediction_list:
-            prediction["_id"] = str(prediction["_id"])
+            prediction["_id"] = prediction.get("id", str(prediction["_id"]))
+            prediction["id"] = prediction["_id"]
             prediction["creator_id"] = str(prediction["creator_id"])
             predictions.append(prediction)
         return predictions
@@ -60,17 +72,21 @@ def get_all_predictions():
 def get_prediction(prediction_id: str):
     db = get_db()
     try:
-        object_id = ObjectId(prediction_id)
-    except Exception:
-        raise ValueError("Invalid prediction ID")
+        prediction = db["Predictions"].find_one({"id": prediction_id})
+        if not prediction:
+            try:
+                object_id = ObjectId(prediction_id)
+            except Exception:
+                object_id = None
 
-    try:
-        prediction = db["Predictions"].find_one({"_id": object_id})
+            if object_id is not None:
+                prediction = db["Predictions"].find_one({"_id": object_id})
     except PyMongoError as exc:
         raise ServiceUnavailableError(f"MongoDB prediction lookup failed: {exc}") from exc
     if not prediction:
         raise ValueError("Prediction not found")
-    prediction["_id"] = str(prediction["_id"])
+    prediction["_id"] = prediction.get("id", str(prediction["_id"]))
+    prediction["id"] = prediction["_id"]
     prediction["creator_id"] = str(prediction["creator_id"])
     return prediction
 
@@ -78,14 +94,23 @@ def get_prediction(prediction_id: str):
 def back_prediction(prediction_id: str, user_id: str, amount: float, is_yes: bool):
     db = get_db()
     try:
-        prediction_object_id = ObjectId(prediction_id)
-        user_object_id = ObjectId(user_id)
-    except Exception:
-        raise ValueError("Invalid prediction or user id")
+        prediction = db["Predictions"].find_one({"id": prediction_id})
+        if not prediction:
+            try:
+                prediction_object_id = ObjectId(prediction_id)
+            except Exception:
+                prediction_object_id = None
+            if prediction_object_id is not None:
+                prediction = db["Predictions"].find_one({"_id": prediction_object_id})
 
-    try:
-        prediction = db["Predictions"].find_one({"_id": prediction_object_id})
-        user = db["Users"].find_one({"_id": user_object_id})
+        user = db["Users"].find_one({"id": user_id})
+        if not user:
+            try:
+                user_object_id = ObjectId(user_id)
+            except Exception:
+                user_object_id = None
+            if user_object_id is not None:
+                user = db["Users"].find_one({"_id": user_object_id})
     except PyMongoError as exc:
         raise ServiceUnavailableError(f"MongoDB bet lookup failed: {exc}") from exc
     if not user or user["balance"] < amount:
@@ -100,8 +125,8 @@ def back_prediction(prediction_id: str, user_id: str, amount: float, is_yes: boo
         return {"success": False, "message": "Prediction is resolved or has expired"}
     bet_type = "yes" if is_yes else "no"
     bet = {
-        "user_id": ObjectId(user_id),
-        "prediction_id": ObjectId(prediction_id),
+        "user_id": user.get("id", str(user["_id"])),
+        "prediction_id": prediction.get("id", str(prediction["_id"])),
         "stake": amount,
         "bet_type": bet_type,
         "created_at": datetime.now(timezone.utc),
@@ -109,9 +134,9 @@ def back_prediction(prediction_id: str, user_id: str, amount: float, is_yes: boo
     field = "total_yes" if is_yes else "total_no"
     try:
         db["Market"].insert_one(bet)
-        db["Users"].update_one({"_id": user_object_id}, {"$inc": {"balance": -amount}})
+        db["Users"].update_one({"_id": user["_id"]}, {"$inc": {"balance": -amount}})
         db["Predictions"].update_one(
-            {"_id": prediction_object_id},
+            {"_id": prediction["_id"]},
             {"$inc": {field: amount}}
         )
     except PyMongoError as exc:

@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
+import hashlib
 from importlib import metadata
 import json
 import os
+import secrets
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -77,6 +79,19 @@ def _ensure_rs256_support():
     )
 
 
+def _short_nonce(length: int = 8) -> str:
+    return secrets.token_hex(length // 2)
+
+
+def _hash_identifier(*parts: str) -> str:
+    material = "|".join(parts)
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+def _build_user_id(email: str, token: str, nonce: str) -> str:
+    return _hash_identifier(email.lower().strip(), token, nonce)
+
+
 def get_db():
     global _client, db, _indexes_ready
 
@@ -96,8 +111,10 @@ def get_db():
 
     if not _indexes_ready:
         try:
+            db["Users"].create_index("id", unique=True, sparse=True)
             db["Users"].create_index("email", unique=True, sparse=True)
             db["Users"].create_index("auth_provider_user_id", unique=True, sparse=True)
+            db["Predictions"].create_index("id", unique=True, sparse=True)
             _indexes_ready = True
         except PyMongoError as exc:
             raise ServiceUnavailableError(f"Failed to initialize MongoDB indexes: {exc}") from exc
@@ -183,7 +200,14 @@ def _merge_auth0_profile(claims: dict, profile: dict | None) -> dict:
 
 
 def _build_new_user_document(claims: dict) -> dict:
+    email = (claims.get("email") or "").lower().strip()
+    if not email:
+        raise ValueError("Token missing email claim required for local user creation")
+
+    nonce = _short_nonce()
     document = {
+        "id": _build_user_id(email, claims["_token"], nonce),
+        "id_nonce": nonce,
         "auth_provider": "auth0",
         "auth_provider_user_id": claims["sub"],
         "balance": 100.0,
@@ -194,8 +218,8 @@ def _build_new_user_document(claims: dict) -> dict:
         "last_login_at": datetime.now(timezone.utc),
     }
 
-    if claims.get("email"):
-        document["email"] = claims["email"].lower().strip()
+    if email:
+        document["email"] = email
     if claims.get("name"):
         document["name"] = claims["name"]
     if "email_verified" in claims:
@@ -206,7 +230,30 @@ def _build_new_user_document(claims: dict) -> dict:
     return document
 
 
-def get_or_create_user_from_claims(claims: dict) -> dict:
+def _ensure_user_id(db, user: dict, token: str) -> dict:
+    if user.get("id"):
+        return user
+
+    email = (user.get("email") or "").lower().strip()
+    if not email:
+        raise ValueError("Existing user record is missing email and cannot be assigned a local id")
+
+    nonce = _short_nonce()
+    user_id = _build_user_id(email, token, nonce)
+    try:
+        db["Users"].update_one(
+            {"_id": user["_id"]},
+            {"$set": {"id": user_id, "id_nonce": nonce}},
+        )
+    except PyMongoError as exc:
+        raise ServiceUnavailableError(f"MongoDB user id backfill failed: {exc}") from exc
+
+    user["id"] = user_id
+    user["id_nonce"] = nonce
+    return user
+
+
+def get_or_create_user_from_claims(claims: dict, token: str) -> dict:
     db = get_db()
     auth_provider_user_id = claims.get("sub")
     if not auth_provider_user_id:
@@ -215,6 +262,7 @@ def get_or_create_user_from_claims(claims: dict) -> dict:
     try:
         user = db["Users"].find_one({"auth_provider_user_id": auth_provider_user_id})
         if user:
+            user = _ensure_user_id(db, user, token)
             updates = {
                 "last_login_at": datetime.now(timezone.utc),
             }
@@ -250,11 +298,14 @@ def get_or_create_user_from_claims(claims: dict) -> dict:
 
                 db["Users"].update_one({"_id": existing_user["_id"]}, {"$set": updates})
                 existing_user.update(updates)
+                existing_user = _ensure_user_id(db, existing_user, token)
                 existing_user["was_just_created"] = False
                 return existing_user
 
         try:
-            result = db["Users"].insert_one(_build_new_user_document(claims))
+            claims_with_token = dict(claims)
+            claims_with_token["_token"] = token
+            result = db["Users"].insert_one(_build_new_user_document(claims_with_token))
             user = db["Users"].find_one({"_id": result.inserted_id})
             if not user:
                 raise ValueError("Failed to create user")
@@ -266,6 +317,7 @@ def get_or_create_user_from_claims(claims: dict) -> dict:
                 user = db["Users"].find_one({"email": claims["email"].lower().strip()})
             if not user:
                 raise ValueError("User creation raced with another request, but no user record was found")
+            user = _ensure_user_id(db, user, token)
             user["was_just_created"] = False
             return user
     except PyMongoError as exc:
@@ -276,9 +328,9 @@ def get_local_user_context_from_token(token: str) -> dict:
     claims = verify_auth0_token(token)
     profile = fetch_auth0_userinfo(token)
     merged_claims = _merge_auth0_profile(claims, profile)
-    user = get_or_create_user_from_claims(merged_claims)
+    user = get_or_create_user_from_claims(merged_claims, token)
     return {
-        "user_id": str(user["_id"]),
+        "user_id": user["id"],
         "was_just_created": bool(user.get("was_just_created", False)),
     }
 
@@ -290,12 +342,15 @@ def get_local_user_id_from_token(token: str) -> str:
 def get_user(user_id: str) -> dict:
     db = get_db()
     try:
-        object_id = ObjectId(user_id)
-    except Exception:
-        raise ValueError("Invalid user id")
+        user = db["Users"].find_one({"id": user_id})
+        if not user:
+            try:
+                object_id = ObjectId(user_id)
+            except Exception:
+                object_id = None
 
-    try:
-        user = db["Users"].find_one({"_id": object_id})
+            if object_id is not None:
+                user = db["Users"].find_one({"_id": object_id})
     except PyMongoError as exc:
         raise ServiceUnavailableError(f"MongoDB user lookup failed: {exc}") from exc
 
@@ -303,7 +358,7 @@ def get_user(user_id: str) -> dict:
         raise ValueError("User not found")
 
     return {
-        "id": str(user["_id"]),
+        "id": user.get("id", str(user["_id"])),
         "name": user.get("name"),
         "email": user.get("email"),
         "email_verified": user.get("email_verified", False),

@@ -1,47 +1,47 @@
-// Blockchain implementation in JavaScript for the frontend
 export class Block {
     constructor(index, previousHash) {
         this.index = index;
         this.timestamp = Date.now();
         this.previousHash = previousHash;
         this.data = [];
-        this.nonce = '';
+        this.nonce = "";
         this.hash = this.calculateHash();
     }
 
-    async calculateHash() {
+    calculateHash() {
         const contents = JSON.stringify([
             this.index,
             this.timestamp,
             this.previousHash,
             this.data,
-            this.nonce
+            this.nonce,
         ]);
-        return sha256(contents);
+        return stableHexHash(contents);
     }
 
-    async mineBlock(difficulty) {
-        const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'.split('');
-        const target = '0'.repeat(difficulty);
+    mineBlock(difficulty) {
+        const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".split("");
+        const target = "0".repeat(difficulty);
 
         for (let len = 1; ; len++) {
             for (const combo of combinations(chars, len)) {
-                this.nonce = combo.join('');
-                this.hash = await this.calculateHash();
-                if (this.hash.startsWith(target)) return;
+                this.nonce = combo.join("");
+                this.hash = this.calculateHash();
+                if (this.hash.startsWith(target)) {
+                    return;
+                }
             }
         }
     }
 
-    // Fake mine — no difficulty, just seal the block immediately
-    async fakeMine() {
-        this.nonce = 'fake!'; //Exclamation mark to differentiate nonce from real mining
-        this.hash = await this.calculateHash();
+    fakeMine() {
+        this.nonce = "fake!";
+        this.hash = this.calculateHash();
     }
 
     addTransaction(transaction) {
         this.data.push({
-            ...transaction
+            ...transaction,
         });
     }
 }
@@ -49,15 +49,14 @@ export class Block {
 export class Blockchain {
     constructor() {
         this.difficulty = 4;
-        this.queue = new TransactionQueue();    // pending transactions
+        this.queue = new TransactionQueue();
         const genesis = this.createGenesisBlock();
         this.current = new Block(1, genesis.hash);
         this.chain = [genesis, this.current];
 
-        // Watch queue and seal a block every time it hits 200
-        this.queue.onChange = async () => {
+        this.queue.onChange = () => {
             if (this.queue.size() >= 200) {
-                await this.sealBlock();
+                this.sealBlock();
             }
         };
     }
@@ -72,38 +71,25 @@ export class Blockchain {
 
     addBlock(newBlock) {
         newBlock.previousHash = this.getLatestBlock().hash;
+        newBlock.hash = newBlock.calculateHash();
         this.chain.push(newBlock);
     }
 
-    // Pull 100 transactions from the queue, fake mine them into a block
-    async sealBlock() {
+    sealBlock() {
         const transactions = this.queue.drain(100);
         for (const tx of transactions) {
             this.current.addTransaction(tx);
         }
-        await this.current.fakeMine();
+
+        this.current.fakeMine();
         this.addBlock(this.current);
-        this.current = new Block(
-            this.current.index + 1,
-            this.getLatestBlock().hash
-        );
+        this.current = new Block(this.current.index + 1, this.getLatestBlock().hash);
     }
 
-    // Add a bet to the queue instead of directly to the block
-    async enqueueBet(prediction_id, user_id, amount, is_yes) {
-        return this.enqueueTransaction("BET_PLACED", {
-            prediction_id,
-            user_id,
-            amount,
-            bet_type: is_yes ? "yes" : "no",
-        });
-    }
-
-    async enqueueTransaction(eventType, payload = {}) {
+    enqueueEvent(eventType, payload = {}) {
         this.queue.push({
             event_type: eventType,
             ...payload,
-            timestamp: payload.timestamp ?? Date.now()
         });
     }
 
@@ -111,52 +97,50 @@ export class Blockchain {
         for (let i = 1; i < this.chain.length; i++) {
             const current = this.chain[i];
             const previous = this.chain[i - 1];
-            if (current.hash !== current.calculateHash()) return false;
-            if (current.previousHash !== previous.hash) return false;
+            if (current.hash !== current.calculateHash()) {
+                return false;
+            }
+            if (current.previousHash !== previous.hash) {
+                return false;
+            }
         }
+
         return true;
     }
 
     deleteBlock(index) {
         this.chain.splice(index, 1);
-        for (let i = index; i < this.chain.length; i++) {
+        for (let i = Math.max(index, 1); i < this.chain.length; i++) {
             this.chain[i].previousHash = this.chain[i - 1].hash;
             this.chain[i].hash = this.chain[i].calculateHash();
         }
     }
 
-    async mineCurrent() {
-        await this.current.mineBlock(this.difficulty);
+    mineCurrent() {
+        this.current.mineBlock(this.difficulty);
         this.addBlock(this.current);
-        this.current = new Block(
-            this.current.index + 1,
-            this.getLatestBlock().hash
-        );
+        this.current = new Block(this.current.index + 1, this.getLatestBlock().hash);
     }
 }
-
-// Transaction Queue
-// Sorted by timestamp, tiebroken by 32-bit hash of the data
 
 export class TransactionQueue {
     constructor() {
         this.transactions = [];
-        this.onChange = null;       // callback set by Blockchain
+        this.onChange = null;
     }
 
     push(tx) {
-        tx._hash = hashCode(JSON.stringify(tx));    // compute once on insert
+        tx._hash = hashCode(JSON.stringify(tx));
         this.transactions.push(tx);
         this.transactions.sort((a, b) => {
             if (a.timestamp !== b.timestamp) {
-                return a.timestamp - b.timestamp;   // oldest first
+                return a.timestamp - b.timestamp;
             }
-            return a._hash - b._hash;               // tiebreak by 32-bit hash
+            return a._hash - b._hash;
         });
         this.onChange?.();
     }
 
-    // Remove and return the first n transactions
     drain(n) {
         return this.transactions.splice(0, n);
     }
@@ -170,33 +154,34 @@ export class TransactionQueue {
     }
 }
 
-// Helpers
-
-async function sha256(str) {
-    const buffer = await crypto.subtle.digest(
-        "SHA-256",
-        new TextEncoder().encode(str)
-    );
-    return Array.from(new Uint8Array(buffer))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
-}
-
-// 32-bit integer hash of a string
 function hashCode(str) {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
         hash = ((hash << 5) - hash) + str.charCodeAt(i);
-        hash |= 0;      // force 32-bit integer
+        hash |= 0;
     }
     return hash;
 }
 
+function stableHexHash(str) {
+    const seedA = hashCode(str);
+    const seedB = hashCode(`${str}|b`);
+    const seedC = hashCode(`${str}|c`);
+    const seedD = hashCode(`${str}|d`);
+
+    return [seedA, seedB, seedC, seedD]
+        .map((part) => (part >>> 0).toString(16).padStart(8, "0"))
+        .join("");
+}
+
 function* combinations(arr, len) {
     if (len === 1) {
-        for (const item of arr) yield [item];
+        for (const item of arr) {
+            yield [item];
+        }
         return;
     }
+
     for (let i = 0; i <= arr.length - len; i++) {
         for (const rest of combinations(arr.slice(i + 1), len - 1)) {
             yield [arr[i], ...rest];

@@ -15,6 +15,8 @@ const state = {
   peers: new Map(),
   seen: new Set(),
   chain: new Blockchain(),
+  market: new Map(),
+  marketCards: new Map(),
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
@@ -127,6 +129,21 @@ function formatDate(dateValue) {
   });
 }
 
+function isHighLowPrediction(prediction) {
+  return prediction?.bet_type === "high_low" || prediction?.bet_type === "highLow";
+}
+
+function normalizePrediction(prediction) {
+  return {
+    ...prediction,
+    id: prediction.id || prediction._id || prediction.prediction_id,
+    _id: prediction._id || prediction.id || prediction.prediction_id,
+    bet_type: isHighLowPrediction(prediction) ? "high_low" : "yes_no",
+    total_yes: Number(prediction.total_yes || 0),
+    total_no: Number(prediction.total_no || 0),
+  };
+}
+
 async function api(path, options = {}) {
   const headers = {
     "Content-Type": "application/json",
@@ -193,20 +210,44 @@ async function newPeerConnection(peerId) {
 }
 
 async function loadIceServers() {
-  const response = await api("/webrtc/turn/ice-config");
-  const turnServers = Array.isArray(response?.iceServers) ? response.iceServers : [];
-  state.iceServers = [
-    { urls: "stun:stun.l.google.com:19302" },
-    ...turnServers,
-  ];
+  try {
+    const response = await api("/webrtc/turn/ice-config");
+    const turnServers = Array.isArray(response?.iceServers) ? response.iceServers : [];
+    state.iceServers = [
+      { urls: "stun:stun.l.google.com:19302" },
+      ...turnServers,
+    ];
+  } catch (error) {
+    state.iceServers = [{ urls: "stun:stun.l.google.com:19302" }];
+    console.warn("TURN configuration unavailable, falling back to public STUN.", error);
+  }
 }
 
-function handleGossip(message) {
-  if (message.type === "NEW_BLOCK") {
-    console.log("New block received:", message.data);
-  } else if (message.type === "NEW_TX") {
-    queueBlockchainEvent(message.data);
-    console.log("New transaction received:", message.data);
+function handleGossip(type,data) {
+  state.chain.enqueueEvent(type,data);
+  console.log(type + " event received:", data);
+  if (type === "BET_PLACED") {
+    const existing = state.market.get(data.prediction_id);
+    if (!existing) return;
+
+    state.market.set(data.prediction_id, {
+      ...existing,
+      total_yes: existing.total_yes + (data.is_yes ? data.amount : 0),
+      total_no: existing.total_no + (!data.is_yes ? data.amount : 0),
+    });
+
+    const prediction = state.market.get(data.prediction_id);
+    updateMarketCard(prediction);
+  } else if (type === "PREDICTION_CREATED") {
+    const prediction = normalizePrediction(data);
+    state.market.set(prediction.id, prediction);
+    if (!state.marketCards.has(prediction.id)) {
+      renderMarketCard(prediction);
+    }
+  } else if (type === "NEW_BLOCK") {
+    console.log("New block received:", data);
+  } else if (type === "USER_CREATED") {
+    console.log("New user created:", data);
   }
 }
 
@@ -219,16 +260,8 @@ function gossip(message, excludePeerId = null) {
   }
 }
 
-async function queueBlockchainEvent(eventData) {
-  if (!eventData?.event_type) {
-    return;
-  }
-
-  await state.chain.enqueueTransaction(eventData.event_type, eventData);
-}
-
 async function broadcastBlockchainEvent(dataType,eventData) {
-  await queueBlockchainEvent(eventData);
+  await handleGossip(dataType,eventData);
   gossip({
     type: dataType,
     data: eventData,
@@ -251,8 +284,7 @@ function setupDataChannel(dc, peerId) {
     }
 
     state.seen.add(hash);
-    handleGossip(message);
-    gossip(message, peerId);
+    broadcastBlockchainEvent(message.type, message.data);
   };
 }
 
@@ -375,9 +407,8 @@ async function loadUser() {
   elements.welcomeTitle.textContent = `Welcome back, ${user.name || "trader"}`;
 
   if (user.was_just_created) {
-    await broadcastBlockchainEvent("NEW_TX", {
-      event_type: "USER_CREATED",
-      user_id: user.id,
+    await broadcastBlockchainEvent("USER_CREATED", {
+      user_id: state.user.id,
       name: user.name || "Auth0 User",
       email: user.email || null,
       starting_balance: user.balance,
@@ -387,25 +418,24 @@ async function loadUser() {
 }
 
 function renderMarketCard(prediction) {
+  const normalizedPrediction = normalizePrediction(prediction);
+  const predictionId = normalizedPrediction.id;
   const fragment = elements.marketTemplate.content.cloneNode(true);
   const card = fragment.querySelector(".market-card");
   const marketTag = fragment.querySelector(".market-tag");
   const marketEnd = fragment.querySelector(".market-end");
   const marketTitle = fragment.querySelector(".market-title");
-  const yesVolume = fragment.querySelector(".yes-volume");
-  const noVolume = fragment.querySelector(".no-volume");
   const betForm = fragment.querySelector(".bet-form");
   const yesButton = fragment.querySelector('[data-side="yes"]');
   const noButton = fragment.querySelector('[data-side="no"]');
-  const isHighLow = prediction.bet_type === "high_low";
-
+  
+  const isHighLow = normalizedPrediction.bet_type === "high_low";
   marketTag.textContent = isHighLow ? "High / Low" : "Yes / No";
-  marketEnd.textContent = `Closes ${formatDate(prediction.end_time)}`;
-  marketTitle.textContent = prediction.bet_string;
-  yesVolume.textContent = `${isHighLow ? "High" : "Yes"}: ${formatMoney(prediction.total_yes)}`;
-  noVolume.textContent = `${isHighLow ? "Low" : "No"}: ${formatMoney(prediction.total_no)}`;
+  marketEnd.textContent = `Closes ${formatDate(normalizedPrediction.end_time)}`;
+  marketTitle.textContent = normalizedPrediction.bet_string;
   yesButton.textContent = isHighLow ? "Buy High" : "Buy Yes";
   noButton.textContent = isHighLow ? "Buy Low" : "Buy No";
+  updateMarketCard(normalizedPrediction, card);
 
   betForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -417,9 +447,10 @@ function renderMarketCard(prediction) {
       const response = await api("/predictions/back-prediction", {
         method: "POST",
         body: JSON.stringify({
-          prediction_id: prediction._id,
+          prediction_id: predictionId,
           amount,
           is_yes: isYes,
+          timestamp: Date.now(),
         }),
       });
 
@@ -427,27 +458,99 @@ function renderMarketCard(prediction) {
         throw new Error(response.message || "Order failed.");
       }
 
+      await broadcastBlockchainEvent("BET_PLACED", {
+        prediction_id: predictionId,
+        amount,
+        is_yes: isYes,
+        user_id: state.user.id,
+        timestamp: Date.now(),
+      });
       betForm.reset();
-      setMessage(`Order placed on "${prediction.bet_string}".`);
-      await Promise.all([loadUser(), loadMarkets()]);
+      setMessage(`Order placed on "${normalizedPrediction.bet_string}".`);
+      await loadUser();
     } catch (error) {
       setMessage(error.message, "error");
+      await loadMarkets();
     }
   });
 
   elements.marketsList.appendChild(card);
+  state.marketCards.set(predictionId, card);
+  return card;
+}
+
+function updateMarketCard(prediction, existingCard = null) {
+  const normalizedPrediction = normalizePrediction(prediction);
+  const predictionId = normalizedPrediction.id;
+  const card = existingCard || state.marketCards.get(predictionId);
+  if (!card) {
+    return;
+  }
+
+  const isHighLow = normalizedPrediction.bet_type === "high_low";
+  const yesVolume = card.querySelector(".yes-volume");
+  const noVolume = card.querySelector(".no-volume");
+
+  yesVolume.textContent = `${isHighLow ? "High" : "Yes"}: ${formatMoney(normalizedPrediction.total_yes)}`;
+  noVolume.textContent = `${isHighLow ? "Low" : "No"}: ${formatMoney(normalizedPrediction.total_no)}`;
 }
 
 async function loadMarkets() {
-  const predictions = await api("/predictions/get-all-predictions");
   elements.marketsList.innerHTML = "";
+  state.market.clear();
+  state.marketCards.clear();
+  const predictions = await api("/predictions/get-all-predictions");
 
   if (!predictions.length) {
     elements.marketsList.innerHTML = '<article class="panel">No active markets yet. Post the first one above.</article>';
     return;
   }
 
-  predictions.forEach(renderMarketCard);
+  for (const prediction of predictions) {
+    const normalizedPrediction = normalizePrediction(prediction);
+    state.market.set(normalizedPrediction.id, normalizedPrediction);
+    renderMarketCard(normalizedPrediction);
+  }
+}
+
+function setupPredictionTypeToggles() {
+  const yesNoToggle = elements.createMarketForm?.querySelector('input[name="is_yes_no"]');
+  const highLowToggle = elements.createMarketForm?.querySelector('input[name="is_high_low"]');
+
+  if (!yesNoToggle || !highLowToggle) {
+    return;
+  }
+
+  const syncToggles = (selectedToggle, otherToggle) => {
+    if (selectedToggle.checked) {
+      otherToggle.checked = false;
+      return;
+    }
+
+    if (!otherToggle.checked) {
+      selectedToggle.checked = true;
+    }
+  };
+
+  yesNoToggle.addEventListener("change", () => syncToggles(yesNoToggle, highLowToggle));
+  highLowToggle.addEventListener("change", () => syncToggles(highLowToggle, yesNoToggle));
+}
+
+function createShortNonce(byteLength = 4) {
+  const bytes = new Uint8Array(byteLength);
+  window.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function sha256Hex(value) {
+  const encoded = new TextEncoder().encode(value);
+  const digest = await window.crypto.subtle.digest("SHA-256", encoded);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function buildPredictionId(userId, betString) {
+  const nonce = createShortNonce();
+  return sha256Hex(`${userId}|${String(betString || "").trim()}|${nonce}`);
 }
 
 async function bootAuthenticatedApp() {
@@ -539,32 +642,33 @@ async function handleCreateMarket(event) {
   const formData = new FormData(elements.createMarketForm);
 
   try {
+    const isYesNo = formData.get("is_yes_no") === "on";
+    const isHighLow = formData.get("is_high_low") === "on";
+    const betString = String(formData.get("bet_string") || "").trim();
+    const endTime = new Date(formData.get("end_time")).toISOString();
+    const predictionId = await buildPredictionId(state.user.id, betString);
     const payload = {
-      bet_string: formData.get("bet_string"),
-      is_yes_no: Boolean(formData.get("is_yes_no")),
-      is_high_low: Boolean(formData.get("is_high_low")),
-      end_time: new Date(formData.get("end_time")).toISOString(),
+      prediction_id: predictionId,
+      bet_string: betString,
+      is_high_low: isHighLow,
+      is_yes_no: isYesNo,
+      end_time: endTime,
     };
 
-    const prediction = await api("/predictions/post-prediction", {
+    const prediction = normalizePrediction(await api("/predictions/post-prediction", {
       method: "POST",
       body: JSON.stringify(payload),
-    });
-    await broadcastBlockchainEvent("NEW_TX", {
-      event_type: "PREDICTION_CREATED",
+    }));
+    await broadcastBlockchainEvent("PREDICTION_CREATED", {
+      ...prediction,
       prediction_id: prediction.id,
-      creator_id: prediction.creator_id,
-      bet_string: prediction.bet_string,
-      bet_type: prediction.bet_type,
-      end_time: prediction.end_time,
-      created_at: prediction.created_at,
       timestamp: Date.now(),
     });
     elements.createMarketForm.reset();
     setMessage("Prediction posted.");
-    await loadMarkets();
   } catch (error) {
     setMessage(error.message, "error");
+    await loadMarkets();
   }
 }
 
@@ -615,6 +719,7 @@ async function initializeAuth() {
 }
 
 function attachEvents() {
+  setupPredictionTypeToggles();
   elements.loginButton.addEventListener("click", () => {
     setAuthStatus("Redirecting to Auth0 sign in...");
     login().catch((error) => {
