@@ -824,6 +824,23 @@ function gossip(message, excludePeerId = null) {
   }
 }
 
+function dm(peerId, message) {
+  const peer = state.peers.get(peerId);
+  if (peer?.dc?.readyState === "open") {
+    peer.dc.send(JSON.stringify(message));
+  }
+}
+
+function handleDMs(message, peerId) {
+  if (message.type === "REQUEST" && message.data === "CHAIN_SYNC") {
+    const chainData = state.chain.export();
+    dm(peerId, { type: "RESPONSE", data: { type: "CHAIN_SYNC", data: chainData } });
+  } else if (message.type === "RESPONSE" && message.data?.type === "CHAIN_SYNC") {
+    const { chainData } = message.data.data;
+    state.chain.import(chainData);
+  }
+}
+
 async function broadcastBlockchainEvent(dataType,eventData) {
   await handleGossip(dataType,eventData);
   gossip({
@@ -839,8 +856,23 @@ function setupDataChannel(dc, peerId) {
   }
 
   peer.dc = dc;
+
+  dc.onopen = () => {
+    if(state.peers.size <= 3) {
+      dm(peerId, {
+        type: "REQUEST",
+        data: "CHAIN_SYNC",
+      });
+    }
+  }
+
   dc.onmessage = (event) => {
     const message = JSON.parse(event.data);
+
+    if (message.type === "REQUEST" || message.type === "RESPONSE") {
+      handleDMs(message, peerId);
+    }
+
     const hash = event.data;
 
     if (state.seen.has(hash)) {
@@ -865,7 +897,7 @@ async function initiateConnection(peerId) {
 async function answerConnection(peerId, sdp) {
   const pc = await newPeerConnection(peerId);
   pc.ondatachannel = (event) => setupDataChannel(event.channel, peerId);
-
+  
   await pc.setRemoteDescription(sdp);
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);

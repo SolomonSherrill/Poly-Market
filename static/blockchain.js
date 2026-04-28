@@ -61,6 +61,22 @@ export class Blockchain {
         };
     }
 
+    export(){
+        return {
+            difficulty: this.difficulty,
+            chain: this.chain, 
+            current: this.current,
+            queue: this.queue.transactions,
+        }
+    }
+
+    import(data) {
+        this.difficulty = data.difficulty;
+        this.chain = data.chain;
+        this.current = data.current;
+        this.queue.transactions = data.queue;
+    }
+
     createGenesisBlock() {
         return new Block(0, "0");
     }
