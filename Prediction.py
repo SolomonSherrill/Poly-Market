@@ -1,7 +1,6 @@
 from dotenv import load_dotenv
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from bson import ObjectId
-import os
 from pymongo.errors import PyMongoError
 
 from Accounts import ServiceUnavailableError, get_db
@@ -26,14 +25,18 @@ def create_prediction(
     db = get_db()
     if not prediction_id or not prediction_id.strip():
         raise ValueError("Prediction id is required")
+    if not bet_string or not bet_string.strip():
+        raise ValueError("Prediction question is required")
+    if is_high_low == is_yes_no:
+        raise ValueError("Choose exactly one prediction type")
 
     bet_type = "highLow" if is_high_low else "yesNo" if is_yes_no else "other"
     prediction = {
         "id": prediction_id.strip(),
         "creator_id": creator_id,
-        "bet_string": bet_string,
+        "bet_string": bet_string.strip(),
         "bet_type": bet_type,
-        "end_time": end_time,
+        "end_time": _as_utc(end_time),
         "created_at": datetime.now(timezone.utc),
         "resolved": False,
         "outcome": None,
@@ -106,8 +109,30 @@ def get_predictions_by_creator(creator_id: str):
         raise ServiceUnavailableError(f"MongoDB creator prediction query failed: {exc}") from exc
 
 
+def get_prediction_history(prediction_id: str):
+    db = get_db()
+    try:
+        history = list(db["Market"].find({"prediction_id": prediction_id}).sort("created_at", 1))
+    except PyMongoError as exc:
+        raise ServiceUnavailableError(f"MongoDB prediction history query failed: {exc}") from exc
+
+    return [
+        {
+            "user_id": entry.get("user_id"),
+            "prediction_id": entry.get("prediction_id"),
+            "stake": entry.get("stake", 0),
+            "bet_type": entry.get("bet_type"),
+            "created_at": entry.get("created_at"),
+        }
+        for entry in history
+    ]
+
+
 def back_prediction(prediction_id: str, user_id: str, amount: float, is_yes: bool):
     db = get_db()
+    if amount <= 0:
+        raise ValueError("Amount must be greater than 0")
+
     try:
         prediction = db["Predictions"].find_one({"id": prediction_id})
         if not prediction:
@@ -130,8 +155,6 @@ def back_prediction(prediction_id: str, user_id: str, amount: float, is_yes: boo
         raise ServiceUnavailableError(f"MongoDB bet lookup failed: {exc}") from exc
     if not user or user["balance"] < amount:
         return {"success": False, "message": "Insufficient balance"}
-    if amount <= 0:
-        raise ValueError("Amount must be greater than 0")
     if not prediction:
         return {"success": False, "message": "Prediction not found"}
 

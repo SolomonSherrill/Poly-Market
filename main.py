@@ -3,16 +3,16 @@ import json
 import logging
 import os
 import random
-import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from urllib import error as urllib_error
 from urllib import request as urllib_request
+import uuid
 
 import numpy as np
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
@@ -33,6 +33,7 @@ from Prediction import (
     create_prediction,
     get_all_predictions,
     get_prediction,
+    get_prediction_history,
     get_predictions_by_creator,
 )
 
@@ -233,7 +234,7 @@ bearer = HTTPBearer()
 
 @app.get("/", include_in_schema=False)
 async def index():
-    html = Path("static/index.html").read_text()
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     html = html.replace(
         '<script type="module" src="/static/app.js"></script>',
         f'<script type="module" src="/static/app.js?v={int(time.time())}"></script>'
@@ -453,6 +454,16 @@ async def get_all_predictions_route(user_id: str = Depends(get_current_user)):
 async def get_prediction_route(prediction_id: str, user_id: str = Depends(get_current_user)):
     try:
         return get_prediction(prediction_id)
+    except (ConfigurationError, ServiceUnavailableError) as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/predictions/{prediction_id}/history")
+async def get_prediction_history_route(prediction_id: str, user_id: str = Depends(get_current_user)):
+    try:
+        return get_prediction_history(prediction_id)
     except (ConfigurationError, ServiceUnavailableError) as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except ValueError as exc:

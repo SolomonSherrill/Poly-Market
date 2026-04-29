@@ -46,6 +46,16 @@ export class Block {
     }
 }
 
+function hydrateBlock(data) {
+    const block = new Block(data.index, data.previousHash);
+    block.timestamp = data.timestamp;
+    block.previousHash = data.previousHash;
+    block.data = Array.isArray(data.data) ? data.data.map((entry) => ({ ...entry })) : [];
+    block.nonce = data.nonce || "";
+    block.hash = data.hash || block.calculateHash();
+    return block;
+}
+
 export class Blockchain {
     constructor() {
         this.difficulty = 4;
@@ -61,20 +71,26 @@ export class Blockchain {
         };
     }
 
-    export(){
+    export() {
         return {
             difficulty: this.difficulty,
-            chain: this.chain, 
+            chain: this.chain,
             current: this.current,
             queue: this.queue.transactions,
-        }
+        };
     }
 
     import(data) {
-        this.difficulty = data.difficulty;
-        this.chain = data.chain;
-        this.current = data.current;
-        this.queue.transactions = data.queue;
+        if (!data || !Array.isArray(data.chain) || !data.current) {
+            return;
+        }
+
+        this.difficulty = Number(data.difficulty || this.difficulty);
+        this.chain = data.chain.map(hydrateBlock);
+        this.current = hydrateBlock(data.current);
+        this.queue.transactions = Array.isArray(data.queue)
+            ? data.queue.map((entry) => ({ ...entry }))
+            : [];
     }
 
     createGenesisBlock() {

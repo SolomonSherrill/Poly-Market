@@ -81,6 +81,3 @@ class Blockchain:
         self.current.mine_block(self.difficulty)
         self.add_block(self.current)
         self.current = Block(self.current.index + 1, self.get_latest_block().hash)
-lf.current = block(self.current.index + 1, previousHash=self.getLatestBlock().hash)
-
-    
