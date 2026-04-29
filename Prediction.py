@@ -106,6 +106,28 @@ def get_predictions_by_creator(creator_id: str):
         raise ServiceUnavailableError(f"MongoDB creator prediction query failed: {exc}") from exc
 
 
+def get_prediction_history(prediction_id: str):
+    db = get_db()
+    try:
+        history = list(
+            db["Market"]
+            .find({"prediction_id": prediction_id})
+            .sort("created_at", 1)
+        )
+        return [
+            {
+                "user_id": entry.get("user_id"),
+                "prediction_id": entry.get("prediction_id"),
+                "stake": float(entry.get("stake", 0)),
+                "bet_type": entry.get("bet_type"),
+                "created_at": entry.get("created_at"),
+            }
+            for entry in history
+        ]
+    except PyMongoError as exc:
+        raise ServiceUnavailableError(f"MongoDB prediction history query failed: {exc}") from exc
+
+
 def back_prediction(prediction_id: str, user_id: str, amount: float, is_yes: bool):
     db = get_db()
     try:

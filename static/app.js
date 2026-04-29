@@ -19,6 +19,8 @@ const state = {
   marketCards: new Map(),
   userProfiles: new Map(),
   userProfileRequests: new Map(),
+  predictionHistoryCache: new Map(),
+  predictionHistoryRequests: new Map(),
   activeTab: "predictions",
   selectedPredictionId: null,
   activeChartHistory: [],
@@ -474,46 +476,56 @@ function attachCreatorLink(button, userId) {
     });
 }
 
-function getLocalPredictionHistory(predictionId) {
-  const events = [];
-  const appendIfMatch = (entry) => {
-    if (entry?.event_type !== "BET_PLACED" || entry.prediction_id !== predictionId) {
-      return;
-    }
+async function getPredictionHistory(predictionId) {
+  if (!predictionId) {
+    return [];
+  }
 
-    events.push({
-      timestamp: Number(entry.timestamp || 0),
-      amount: Number(entry.amount || 0),
-      isYes: Boolean(entry.is_yes),
+  if (state.predictionHistoryCache.has(predictionId)) {
+    return state.predictionHistoryCache.get(predictionId);
+  }
+
+  if (state.predictionHistoryRequests.has(predictionId)) {
+    return state.predictionHistoryRequests.get(predictionId);
+  }
+
+  const request = api(`/predictions/${encodeURIComponent(predictionId)}/history`)
+    .then((historyEntries) => {
+      const history = (Array.isArray(historyEntries) ? historyEntries : [])
+        .map((entry) => ({
+          timestamp: new Date(entry.created_at).getTime(),
+          amount: Number(entry.stake || 0),
+          isYes: entry.bet_type === "yes",
+        }))
+        .filter((entry) => !Number.isNaN(entry.timestamp))
+        .sort((left, right) => left.timestamp - right.timestamp);
+
+      let yesAmount = 0;
+      let noAmount = 0;
+      const series = history.map((entry) => {
+        yesAmount += entry.isYes ? entry.amount : 0;
+        noAmount += entry.isYes ? 0 : entry.amount;
+        const total = yesAmount + noAmount;
+        return {
+          timestamp: entry.timestamp,
+          yesAmount,
+          noAmount,
+          totalVolume: total,
+          price: total > 0 ? (yesAmount / total) * 100 : 50,
+        };
+      });
+
+      state.predictionHistoryCache.set(predictionId, series);
+      state.predictionHistoryRequests.delete(predictionId);
+      return series;
+    })
+    .catch((error) => {
+      state.predictionHistoryRequests.delete(predictionId);
+      throw error;
     });
-  };
 
-  for (const block of state.chain.chain) {
-    for (const entry of block.data || []) {
-      appendIfMatch(entry);
-    }
-  }
-
-  for (const entry of state.chain.queue.transactions || []) {
-    appendIfMatch(entry);
-  }
-
-  events.sort((left, right) => left.timestamp - right.timestamp);
-
-  let yesAmount = 0;
-  let noAmount = 0;
-  return events.map((event) => {
-    yesAmount += event.isYes ? event.amount : 0;
-    noAmount += event.isYes ? 0 : event.amount;
-    const total = yesAmount + noAmount;
-    return {
-      timestamp: event.timestamp,
-      yesAmount,
-      noAmount,
-      totalVolume: total,
-      price: total > 0 ? (yesAmount / total) * 100 : 50,
-    };
-  });
+  state.predictionHistoryRequests.set(predictionId, request);
+  return request;
 }
 
 function hideChartHover() {
@@ -612,10 +624,13 @@ function updateChartHover(clientX) {
   elements.detailChartTooltip.style.left = `${left}px`;
 }
 
-function renderPredictionHistory(prediction) {
+async function renderPredictionHistory(prediction) {
   const normalizedPrediction = normalizePrediction(prediction);
   const labels = getPredictionOutcomeLabels(normalizedPrediction);
-  const history = getLocalPredictionHistory(normalizedPrediction.id);
+  const history = await getPredictionHistory(normalizedPrediction.id);
+  if (state.selectedPredictionId !== normalizedPrediction.id) {
+    return;
+  }
   state.activeChartHistory = [];
 
   if (!history.length) {
@@ -623,11 +638,11 @@ function renderPredictionHistory(prediction) {
     const emptyText = elements.detailChartEmpty.querySelector("p");
     elements.detailChartFrame.classList.add("hidden");
     elements.detailChartEmpty.classList.remove("hidden");
-    elements.detailChartCaption.textContent = `Waiting for local blockchain ${labels.positive.toLowerCase()} / ${labels.negative.toLowerCase()} trades`;
+    elements.detailChartCaption.textContent = `Waiting for database ${labels.positive.toLowerCase()} / ${labels.negative.toLowerCase()} trade history`;
     if (emptyText) {
       emptyText.textContent = metrics.totalVolume > 0
-        ? "Current market volume exists, but this local blockchain session has not observed past trade points for this prediction id yet."
-        : "No local price points yet for this prediction id.";
+        ? "Current market volume exists, but no historical trade points were returned from the database for this prediction yet."
+        : "No database price points yet for this prediction id.";
     }
     hideChartHover();
     elements.detailChartArea.setAttribute("d", "");
@@ -688,7 +703,7 @@ function renderPredictionHistory(prediction) {
   elements.detailChartLine.setAttribute("d", linePath);
   elements.detailChartFrame.classList.remove("hidden");
   elements.detailChartEmpty.classList.add("hidden");
-  elements.detailChartCaption.textContent = `${history.length} local trade${history.length === 1 ? "" : "s"} observed, latest implied ${labels.positive.toLowerCase()} price ${formatPercent(latestPoint.price)}`;
+  elements.detailChartCaption.textContent = `${history.length} database trade${history.length === 1 ? "" : "s"} observed, latest implied ${labels.positive.toLowerCase()} price ${formatPercent(latestPoint.price)}`;
   updateChartHover(elements.detailChartOverlay.getBoundingClientRect().left + (elements.detailChartOverlay.getBoundingClientRect().width / 2));
 }
 
@@ -793,6 +808,8 @@ function handleGossip(type,data) {
   if (type === "BET_PLACED") {
     const existing = state.market.get(data.prediction_id);
     if (!existing) return;
+    state.predictionHistoryCache.delete(data.prediction_id);
+    state.predictionHistoryRequests.delete(data.prediction_id);
 
     state.market.set(data.prediction_id, {
       ...existing,
@@ -1151,7 +1168,15 @@ function renderSelectedPrediction(prediction) {
   elements.detailYesButton.textContent = `Buy ${labels.positive}`;
   elements.detailNoButton.textContent = `Buy ${labels.negative}`;
   attachCreatorLink(elements.detailCreatorLink, normalizedPrediction.creator_id);
-  renderPredictionHistory(normalizedPrediction);
+  renderPredictionHistory(normalizedPrediction).catch(() => {
+    elements.detailChartFrame.classList.add("hidden");
+    elements.detailChartEmpty.classList.remove("hidden");
+    elements.detailChartCaption.textContent = "Database chart history unavailable";
+    const emptyText = elements.detailChartEmpty.querySelector("p");
+    if (emptyText) {
+      emptyText.textContent = "The market history query failed, so past price points could not be loaded from the database.";
+    }
+  });
 }
 
 function selectPrediction(predictionId) {

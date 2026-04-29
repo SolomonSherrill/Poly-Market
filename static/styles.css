@@ -39,39 +39,7 @@ select {
 }
 
 .shell {
-  display: grid;
-  grid-template-columns: minmax(320px, 460px) 1fr;
   min-height: 100vh;
-}
-
-.hero-panel {
-  padding: 48px 40px;
-  background:
-    linear-gradient(165deg, rgba(7, 37, 84, 0.98), rgba(17, 75, 255, 0.92)),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.06), transparent 40%);
-  color: white;
-  display: flex;
-  flex-direction: column;
-  gap: 28px;
-}
-
-.brand-lockup {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
-}
-
-.brand-badge {
-  width: 56px;
-  height: 56px;
-  border-radius: 18px;
-  display: grid;
-  place-items: center;
-  font-family: "Space Grotesk", sans-serif;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.16);
 }
 
 .eyebrow,
@@ -105,26 +73,9 @@ h1 {
   line-height: 0.96;
 }
 
-.hero-copy {
-  max-width: 42ch;
-  color: rgba(255, 255, 255, 0.84);
-  line-height: 1.6;
-}
-
-.hero-grid {
-  display: grid;
-  gap: 14px;
-}
-
-.stat-card {
-  padding: 18px 20px;
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  backdrop-filter: blur(16px);
-}
-
 .app-panel {
+  width: min(1400px, 100%);
+  margin: 0 auto;
   padding: 34px;
 }
 
@@ -850,20 +801,14 @@ h1 {
 }
 
 @media (max-width: 1080px) {
-  .shell,
   .auth-layout,
   .dashboard-grid,
   .prediction-detail-layout {
     grid-template-columns: 1fr;
   }
-
-  .hero-panel {
-    min-height: auto;
-  }
 }
 
 @media (max-width: 640px) {
-  .hero-panel,
   .app-panel {
     padding: 24px;
   }

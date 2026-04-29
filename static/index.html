@@ -14,39 +14,9 @@
   data-auth0-domain="dev-ti5ylgf1v4ze1wq8.us.auth0.com"
   data-auth0-client-id="080Yw9NmpP9mJVEdRqe8JtMi8aeETjxi"
   data-auth0-audience="https://poly-market-api"
->
-  <div class="shell">
-    <aside class="hero-panel">
-      <div class="brand-lockup">
-        <div class="brand-badge">PM</div>
-        <div>
-          <p class="eyebrow">Railway-ready prediction exchange</p>
-          <h1>Trade opinions with Auth0-backed account access.</h1>
-        </div>
-      </div>
-
-      <p class="hero-copy">
-        Universal Login now issues the same Auth0 access token your FastAPI app already verifies
-        before serving account, prediction, and websocket traffic.
-      </p>
-
-      <div class="hero-grid">
-        <article class="stat-card">
-          <span class="stat-label">Market Speed</span>
-          <strong>Auth0 token to API in one flow</strong>
-        </article>
-        <article class="stat-card">
-          <span class="stat-label">Deployment</span>
-          <strong>Single Railway service</strong>
-        </article>
-        <article class="stat-card">
-          <span class="stat-label">Session</span>
-          <strong>Shared login for REST + websocket</strong>
-        </article>
-      </div>
-    </aside>
-
-    <main class="app-panel">
+	>
+	  <div class="shell">
+	    <main class="app-panel">
       <header class="topbar">
         <div>
           <p class="topbar-label">Market Console</p>
@@ -222,13 +192,13 @@
                     </div>
 
                     <div class="chart-panel">
-                      <div class="chart-header">
-                        <div>
-                          <p class="panel-kicker">Price history</p>
-                          <h4>Observed blockchain pricing</h4>
-                        </div>
-                        <span id="detail-chart-caption" class="chart-caption">Waiting for local blockchain trades</span>
-                      </div>
+	                      <div class="chart-header">
+	                        <div>
+	                          <p class="panel-kicker">Price history</p>
+	                          <h4>Database-backed pricing</h4>
+	                        </div>
+	                        <span id="detail-chart-caption" class="chart-caption">Waiting for database trade history</span>
+	                      </div>
                     <div id="detail-chart-empty" class="chart-empty">
                       <p>No local price points yet for this prediction id.</p>
                     </div>
