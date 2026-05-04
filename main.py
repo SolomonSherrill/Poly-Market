@@ -3,16 +3,16 @@ import json
 import logging
 import os
 import random
-import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from urllib import error as urllib_error
 from urllib import request as urllib_request
+import uuid
 
 import numpy as np
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
@@ -234,7 +234,7 @@ bearer = HTTPBearer()
 
 @app.get("/", include_in_schema=False)
 async def index():
-    html = Path("static/index.html").read_text()
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     html = html.replace(
         '<script type="module" src="/static/app.js"></script>',
         f'<script type="module" src="/static/app.js?v={int(time.time())}"></script>'

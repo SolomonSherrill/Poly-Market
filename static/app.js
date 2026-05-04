@@ -914,6 +914,7 @@ async function initiateConnection(peerId) {
 async function answerConnection(peerId, sdp) {
   const pc = await newPeerConnection(peerId);
   pc.ondatachannel = (event) => setupDataChannel(event.channel, peerId);
+
   
   await pc.setRemoteDescription(sdp);
   const answer = await pc.createAnswer();
